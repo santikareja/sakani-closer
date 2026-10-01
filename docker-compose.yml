@@ -86,6 +86,46 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    networks:
+      - default
+      - gateway_private
+
+  wa-gateway:
+    profiles: ["app", "gateway"]
+    build:
+      context: .
+      dockerfile: apps/wa-gateway/Dockerfile
+      target: runner
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      WA_GATEWAY_PORT: 3001
+      WA_AUTH_DATA_DIR: /var/lib/sakani-wa
+      WA_LOG_LEVEL: ${WA_LOG_LEVEL:-info}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?Set INTERNAL_SERVICE_TOKEN in .env}
+      SESSION_ENCRYPTION_KEY: ${SESSION_ENCRYPTION_KEY:?Set SESSION_ENCRYPTION_KEY in .env}
+    expose:
+      - "3001"
+    volumes:
+      - wa_auth_data:/var/lib/sakani-wa
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3001/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - gateway_private
 
   migrate:
     profiles: ["tools"]
@@ -116,3 +156,8 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  wa_auth_data:
+
+networks:
+  gateway_private:
+    driver: bridge

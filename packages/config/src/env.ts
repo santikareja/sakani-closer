@@ -32,10 +32,17 @@ export const webEnvSchema = databaseEnvSchema.extend({
   HEALTHCHECK_TIMEOUT_MS: z.coerce.number().int().min(100).max(10_000).default(1_500),
 });
 
-export const futureGatewayEnvSchema = z.object({
-  ...runtimeModeShape,
-  REDIS_URL: redisUrl,
-  SESSION_ENCRYPTION_KEY: z.string().min(32),
+export const gatewayEnvSchema = z.object({
+  NODE_ENV: runtimeModeShape.NODE_ENV,
+  WA_GATEWAY_PORT: z.coerce.number().int().min(1).max(65_535).default(3_001),
+  WA_AUTH_DATA_DIR: z.string().trim().min(1).default("./wa-auth"),
+  WA_LOG_LEVEL: runtimeModeShape.LOG_LEVEL,
+  SESSION_ENCRYPTION_KEY: z
+    .string()
+    .regex(
+      /^[A-Za-z0-9_-]{43}$/,
+      "SESSION_ENCRYPTION_KEY must be a 32-byte base64url value without padding",
+    ),
   INTERNAL_SERVICE_TOKEN: z.string().min(32),
 });
 
@@ -52,11 +59,12 @@ export const futureWorkerEnvSchema = databaseEnvSchema.extend({
 
 export type DatabaseEnv = z.infer<typeof databaseEnvSchema>;
 export type WebEnv = z.infer<typeof webEnvSchema>;
-export type FutureGatewayEnv = z.infer<typeof futureGatewayEnvSchema>;
+export type GatewayEnv = z.infer<typeof gatewayEnvSchema>;
 export type FutureWorkerEnv = z.infer<typeof futureWorkerEnvSchema>;
 
 let cachedDatabaseEnv: DatabaseEnv | undefined;
 let cachedWebEnv: WebEnv | undefined;
+let cachedGatewayEnv: GatewayEnv | undefined;
 
 export function parseDatabaseEnv(input: NodeJS.ProcessEnv | Record<string, unknown>): DatabaseEnv {
   return databaseEnvSchema.parse(input);
@@ -64,6 +72,10 @@ export function parseDatabaseEnv(input: NodeJS.ProcessEnv | Record<string, unkno
 
 export function parseWebEnv(input: NodeJS.ProcessEnv | Record<string, unknown>): WebEnv {
   return webEnvSchema.parse(input);
+}
+
+export function parseGatewayEnv(input: NodeJS.ProcessEnv | Record<string, unknown>): GatewayEnv {
+  return gatewayEnvSchema.parse(input);
 }
 
 export function getDatabaseEnv(): DatabaseEnv {
@@ -76,7 +88,13 @@ export function getWebEnv(): WebEnv {
   return cachedWebEnv;
 }
 
+export function getGatewayEnv(): GatewayEnv {
+  cachedGatewayEnv ??= parseGatewayEnv(process.env);
+  return cachedGatewayEnv;
+}
+
 export function resetEnvForTests(): void {
   cachedDatabaseEnv = undefined;
   cachedWebEnv = undefined;
+  cachedGatewayEnv = undefined;
 }

@@ -3,8 +3,10 @@ packages:
   - "packages/*"
 
 allowBuilds:
+  "@whiskeysockets/baileys": true
   argon2: true
   esbuild: true
+  protobufjs: true
 
 onlyBuiltDependencies:
   - esbuild
@@ -12,3 +14,4 @@ onlyBuiltDependencies:
 
 overrides:
   "@esbuild-kit/core-utils@3.3.2>esbuild": "0.25.12"
+  "esbuild@>=0.27.3 <0.28.1": "0.28.1"

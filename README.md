@@ -1,6 +1,6 @@
 # Sakani Closer
 
-Sakani Closer is an internal, AI-enabled WhatsApp property-marketing system for Sakani. This repository currently implements **Phase 1**: the Phase 0 deployment foundation plus owner authentication and server-side workspace authorization. It does not connect WhatsApp, call an AI provider, send messages, or manage leads yet.
+Sakani Closer is an internal, AI-enabled WhatsApp property-marketing system for Sakani. This repository currently implements **Phase 2A**: the Phase 0 deployment foundation, Phase 1 owner/workspace authorization, and an isolated WhatsApp gateway skeleton. The gateway does not connect automatically, send messages, process chats, call an AI provider, or manage leads.
 
 ## Phase 0 status
 
@@ -29,6 +29,19 @@ Included:
 
 Still not included: Baileys login, inbox, CRM workflows, AI calls, RAG, catalog management, skills, memory, follow-up jobs, billing, public HTTPS, or production deployment automation.
 
+## Phase 2A status
+
+Included:
+
+- A separate `wa-gateway` Node.js service using pinned `@whiskeysockets/baileys` `7.0.0-rc14`.
+- An explicit connection state machine and manual internal connect/disconnect boundaries.
+- In-memory, expiring QR state that is never returned by health/status and is never logged.
+- AES-256-GCM encrypted Baileys credential/key persistence in a private named volume.
+- Bearer-authenticated internal routes, fixed-window rate limits, safe errors, and an unauthenticated internal health route.
+- A Compose service with no host port, no PostgreSQL/Redis dependency, and no startup auto-connect.
+
+Not included in Phase 2A: owner-facing QR proxy/UI, production WhatsApp login validation, incoming message processing, message sending, groups, broadcasts, pairing codes, AI, RAG, CRM automation, media processing, or follow-up jobs. Do not claim the gateway is connected until the next slice exposes the QR through the authenticated web backend and validates it with a dedicated test number.
+
 ## Prerequisites
 
 - Node.js 22 or newer (Node.js 24 is used by the container image).
@@ -48,9 +61,9 @@ pnpm install
 cp .env.example .env
 ```
 
-Edit `.env` before starting services. Replace the PostgreSQL password, Redis password, and `AUTH_SECRET` placeholders with independent, high-entropy URL-safe values. `AUTH_SECRET` must contain at least 32 characters and must not reuse another credential. Never commit `.env`.
+Edit `.env` before starting services. Replace the PostgreSQL password, Redis password, `AUTH_SECRET`, `INTERNAL_SERVICE_TOKEN`, and `SESSION_ENCRYPTION_KEY` placeholders with independent, high-entropy values. `AUTH_SECRET` and `INTERNAL_SERVICE_TOKEN` must contain at least 32 characters. `SESSION_ENCRYPTION_KEY` must be a 32-byte base64url value without padding; use the generator documented in `.env.example`. Never commit `.env`.
 
-Environment validation is service-specific: migration and seed commands require only `DATABASE_URL`; the web runtime additionally requires `APP_URL`, `REDIS_URL`, and `AUTH_SECRET`. Future gateway and worker contracts are defined separately and are not validated by current database tools.
+Environment validation is service-specific: migration and seed commands require only `DATABASE_URL`; the web runtime additionally requires `APP_URL`, `REDIS_URL`, and `AUTH_SECRET`; the gateway requires only its port/log/path settings plus its encryption key and internal token. The worker contract remains separate. Database tools never validate web or gateway secrets.
 
 PowerShell equivalent for the copy step:
 
@@ -122,6 +135,21 @@ docker compose --profile app up -d web
 curl --fail http://127.0.0.1:3000/api/health
 ```
 
+## Run the Phase 2A WhatsApp gateway
+
+The gateway starts in `disconnected` state and deliberately does not contact WhatsApp until an authenticated internal caller requests a connection:
+
+```bash
+docker compose --profile gateway build wa-gateway
+docker compose --profile gateway up -d wa-gateway
+docker compose ps wa-gateway
+docker compose exec wa-gateway node -e "fetch('http://127.0.0.1:3001/health').then(async r => { console.log(r.status, await r.json()); if (!r.ok) process.exit(1) })"
+```
+
+There is no host port for the gateway. Its `gateway_private` bridge permits outbound WhatsApp connectivity and service-to-service access but does not publish port `3001`. `/internal/*` requires `Authorization: Bearer <INTERNAL_SERVICE_TOKEN>`; `/health` is intentionally token-free for the container healthcheck. The QR endpoint is an internal boundary for a future authenticated web proxy, not a public or terminal QR flow.
+
+See [`apps/wa-gateway/README.md`](apps/wa-gateway/README.md) for the API, state machine, encryption format, current limitations, and operational notes.
+
 ## Quality checks
 
 ```bash
@@ -166,7 +194,7 @@ Named volumes are persistent but are not backups. Phase 0 includes a documented 
 
 ```text
 apps/web/          Next.js auth, protected dashboard, and health application
-apps/wa-gateway/   Phase 0 boundary; no WhatsApp connection
+apps/wa-gateway/   Phase 2A isolated Baileys gateway skeleton; sending disabled
 apps/worker/       Phase 0 boundary; no queue processing
 packages/config/   Zod environment contracts
 packages/database/ Drizzle schema, migration, seed, and health query
@@ -185,4 +213,4 @@ Rollback should restore the pre-Phase-1 database backup and deploy the previous 
 
 ## Next recommended task
 
-Run browser-level Phase 1 acceptance tests against the Azure VM after deploying the reviewed migration. Do not begin WhatsApp integration until registration, login, logout, inactive membership denial, and cross-workspace isolation are confirmed in that environment.
+Implement the authenticated owner-only web proxy/UI for gateway status, connect/disconnect, and short-lived QR retrieval. Then validate a manual QR login with a dedicated backup/test WhatsApp number on Azure. Keep sending and incoming-message processing disabled in that slice.

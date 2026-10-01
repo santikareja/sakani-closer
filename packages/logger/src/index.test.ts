@@ -25,6 +25,9 @@ describe("logger", () => {
         sessionToken: "session-token-must-not-leak",
         req: { headers: { cookie: "sakani_session=must-not-leak" } },
         AUTH_SECRET: "auth-secret-must-not-leak",
+        INTERNAL_SERVICE_TOKEN: "internal-token-must-not-leak",
+        SESSION_ENCRYPTION_KEY: "encryption-key-must-not-leak",
+        qr: "qr-payload-must-not-leak",
         message: { content: "private chat" },
       },
       "event",
@@ -36,6 +39,9 @@ describe("logger", () => {
     expect(output).not.toContain("session-token-must-not-leak");
     expect(output).not.toContain("sakani_session=must-not-leak");
     expect(output).not.toContain("auth-secret-must-not-leak");
+    expect(output).not.toContain("internal-token-must-not-leak");
+    expect(output).not.toContain("encryption-key-must-not-leak");
+    expect(output).not.toContain("qr-payload-must-not-leak");
     expect(output).toContain("[REDACTED]");
     expect(output).toContain("request-123");
   });

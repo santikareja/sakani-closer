@@ -24,6 +24,14 @@ const REDACTED_PATHS = [
   "headers.cookie",
   "authSecret",
   "AUTH_SECRET",
+  "internalServiceToken",
+  "INTERNAL_SERVICE_TOKEN",
+  "sessionEncryptionKey",
+  "SESSION_ENCRYPTION_KEY",
+  "qr",
+  "authState",
+  "credentials",
+  "creds",
   "message.content",
 ] as const;
 
