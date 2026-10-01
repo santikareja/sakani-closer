@@ -30,7 +30,7 @@ const transitions: Record<ConnectionState, ReadonlySet<ConnectionState>> = {
   connected: new Set(["logged_out", "auth_error", "transient_error", "disconnected", "stopping"]),
   logged_out: new Set(["connecting", "disconnected", "stopping"]),
   auth_error: new Set(["connecting", "disconnected", "stopping"]),
-  transient_error: new Set(["connecting", "disconnected", "stopping"]),
+  transient_error: new Set(["transient_error", "connecting", "disconnected", "stopping"]),
   stopping: new Set(["disconnected"]),
 };
 

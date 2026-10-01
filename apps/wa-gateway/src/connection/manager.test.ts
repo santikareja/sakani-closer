@@ -54,6 +54,44 @@ describe("ConnectionManager", () => {
     await manager.disconnect();
   });
 
+  it("keeps repeated connect requests idempotent", async () => {
+    const connector = new FakeConnector();
+    const { logger } = createLogger();
+    const manager = new ConnectionManager(
+      connector,
+      new ConnectionStateMachine(),
+      new QrManager(),
+      logger,
+    );
+
+    await Promise.all([manager.connect(), manager.connect(), manager.connect()]);
+
+    expect(connector.openCount).toBe(1);
+    await manager.disconnect();
+  });
+
+  it("exposes only a masked phone number while connected", async () => {
+    const connector = new FakeConnector();
+    const { logger } = createLogger();
+    const manager = new ConnectionManager(
+      connector,
+      new ConnectionStateMachine(),
+      new QrManager(),
+      logger,
+    );
+
+    await manager.connect();
+    connector.callbacks[0]!.onOpen("62812****789");
+
+    expect(manager.getStatus()).toMatchObject({
+      state: "connected",
+      phoneNumberMasked: "62812****789",
+    });
+    expect(JSON.stringify(manager.getStatus())).not.toContain("628123456789");
+    await manager.disconnect();
+    expect(manager.getStatus()).not.toHaveProperty("phoneNumberMasked");
+  });
+
   it("does not reconnect logged-out or authentication-failed sessions", async () => {
     vi.useFakeTimers();
     const connector = new FakeConnector();
@@ -98,6 +136,40 @@ describe("ConnectionManager", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(connector.openCount).toBe(2);
     expect(computeReconnectDelay(10)).toBe(30_000);
+    await manager.disconnect();
+    vi.useRealTimers();
+  });
+
+  it("stops transient reconnects after the configured maximum", async () => {
+    vi.useFakeTimers();
+    const connector = new FakeConnector();
+    const { logger, output } = createLogger();
+    const manager = new ConnectionManager(
+      connector,
+      new ConnectionStateMachine(),
+      new QrManager(),
+      logger,
+      10,
+      100,
+      3,
+    );
+
+    await manager.connect();
+    connector.callbacks[0]!.onClose("transient_error");
+    await vi.advanceTimersByTimeAsync(10);
+    connector.callbacks[1]!.onClose("transient_error");
+    await vi.advanceTimersByTimeAsync(20);
+    connector.callbacks[2]!.onClose("transient_error");
+    await vi.advanceTimersByTimeAsync(40);
+    connector.callbacks[3]!.onClose("transient_error");
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(connector.openCount).toBe(4);
+    expect(manager.getStatus()).toMatchObject({
+      state: "transient_error",
+      reason: "retry_exhausted",
+    });
+    expect(output.join("\n")).toContain("wa.connection.retry_exhausted");
     await manager.disconnect();
     vi.useRealTimers();
   });

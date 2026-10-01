@@ -21,6 +21,7 @@ export const connectionReasons = [
   "authentication_failed",
   "connection_interrupted",
   "retry_started",
+  "retry_exhausted",
   "shutdown_requested",
   "shutdown_complete",
 ] as const;
@@ -33,11 +34,15 @@ export interface ConnectionSnapshot {
   updatedAt: string;
 }
 
+export interface ConnectionStatus extends ConnectionSnapshot {
+  phoneNumberMasked?: string;
+}
+
 export type DisconnectKind = "logged_out" | "auth_error" | "transient_error";
 
 export interface ConnectionCallbacks {
   onQr(qr: string): void;
-  onOpen(): void;
+  onOpen(phoneNumberMasked?: string): void;
   onClose(kind: DisconnectKind): void;
 }
 

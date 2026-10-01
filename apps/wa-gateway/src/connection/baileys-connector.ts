@@ -2,9 +2,10 @@ import makeWASocket, {
   DisconnectReason,
   isJidBroadcast,
   isJidGroup,
+  jidDecode,
 } from "@whiskeysockets/baileys";
 
-import { createBaileysAuthState } from "../auth/baileys-auth-state.js";
+import { clearBaileysAuthState, createBaileysAuthState } from "../auth/baileys-auth-state.js";
 import type { AuthStore } from "../auth/store.js";
 import type {
   ConnectionCallbacks,
@@ -40,6 +41,21 @@ export function classifyDisconnect(error: unknown): DisconnectKind {
     return "auth_error";
   }
   return "transient_error";
+}
+
+export function maskPhoneNumber(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const digits = value.replace(/\D/g, "");
+  if (digits.length < 8) return undefined;
+  return `${digits.slice(0, 5)}****${digits.slice(-3)}`;
+}
+
+function getMaskedSocketIdentity(socket: {
+  user?: { id: string; phoneNumber?: string | null | undefined } | undefined;
+}) {
+  const phoneNumber = socket.user?.phoneNumber ?? undefined;
+  if (phoneNumber) return maskPhoneNumber(phoneNumber);
+  return maskPhoneNumber(jidDecode(socket.user?.id ?? "")?.user);
 }
 
 export class BaileysConnector implements GatewayConnector {
@@ -86,10 +102,23 @@ export class BaileysConnector implements GatewayConnector {
 
     socket.ev.on("connection.update", (update) => {
       if (update.qr) callbacks.onQr(update.qr);
-      if (update.connection === "open") callbacks.onOpen();
+      if (update.connection === "open") callbacks.onOpen(getMaskedSocketIdentity(socket));
       if (update.connection === "close" && !closed) {
         closed = true;
-        callbacks.onClose(classifyDisconnect(update.lastDisconnect?.error));
+        const kind = classifyDisconnect(update.lastDisconnect?.error);
+        if (kind === "logged_out") {
+          void clearBaileysAuthState(this.authStore)
+            .then(() => callbacks.onClose("logged_out"))
+            .catch(() => {
+              this.logger.error(
+                { event: "wa.auth.clear_failed" },
+                "Sesi WhatsApp yang logout gagal dibersihkan",
+              );
+              callbacks.onClose("auth_error");
+            });
+          return;
+        }
+        callbacks.onClose(kind);
       }
     });
 

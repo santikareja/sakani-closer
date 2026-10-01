@@ -106,9 +106,15 @@ a {
 }
 
 .auth-form button,
-.dashboard-header button {
+.dashboard-header button,
+.whatsapp-panel button {
   cursor: pointer;
   font: inherit;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.62;
 }
 
 .field-help {
@@ -170,6 +176,42 @@ a {
 
 .dashboard-card p {
   margin: 0.45rem 0 0;
+}
+
+.dashboard-settings {
+  margin-top: 3rem;
+}
+
+.dashboard-settings > h2 {
+  margin-bottom: 1rem;
+}
+
+.dashboard-card-link {
+  display: flex;
+  max-width: 36rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--ink);
+  text-decoration: none;
+  transition:
+    border-color 150ms ease,
+    transform 150ms ease;
+}
+
+.dashboard-card-link:hover {
+  border-color: var(--brand);
+  transform: translateY(-2px);
+}
+
+.dashboard-card-link span:first-child {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.dashboard-card-link small {
+  color: var(--muted);
+  font-size: 0.9rem;
 }
 
 .card-label {
@@ -355,6 +397,150 @@ h2 {
   text-underline-offset: 0.2em;
 }
 
+.whatsapp-settings-shell {
+  width: min(100% - 2rem, 58rem);
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 2.5rem;
+}
+
+.settings-header h1 {
+  max-width: 13ch;
+  font-size: clamp(2.5rem, 7vw, 4.8rem);
+}
+
+.whatsapp-panel {
+  margin-top: clamp(2rem, 6vw, 4rem);
+  padding: clamp(1.25rem, 4vw, 2rem);
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: var(--surface);
+  box-shadow: 0 1.2rem 3rem rgba(24, 35, 29, 0.06);
+}
+
+.whatsapp-status-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.connection-indicator {
+  width: 0.8rem;
+  height: 0.8rem;
+  flex: 0 0 auto;
+  margin-top: 0.35rem;
+  border-radius: 999px;
+  background: #8a918c;
+  box-shadow: 0 0 0 0.3rem rgba(138, 145, 140, 0.14);
+}
+
+.connection-connected {
+  background: var(--ok-text);
+  box-shadow: 0 0 0 0.3rem rgba(25, 88, 61, 0.14);
+}
+
+.connection-auth_error,
+.connection-logged_out,
+.connection-transient_error {
+  background: var(--error-text);
+  box-shadow: 0 0 0 0.3rem rgba(138, 46, 38, 0.12);
+}
+
+.connection-connecting,
+.connection-qr_ready {
+  background: #b86b0b;
+  box-shadow: 0 0 0 0.3rem rgba(184, 107, 11, 0.13);
+}
+
+.whatsapp-metadata {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1.75rem 0;
+  padding: 1rem 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.whatsapp-metadata dt {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.whatsapp-metadata dd {
+  margin: 0.35rem 0 0;
+  font-weight: 700;
+}
+
+.qr-stage {
+  display: grid;
+  min-height: 23rem;
+  place-items: center;
+  margin-top: 1.5rem;
+  padding: clamp(1rem, 4vw, 2rem);
+  border: 1px dashed #b7c0ba;
+  border-radius: 0.75rem;
+  text-align: center;
+}
+
+.qr-canvas {
+  width: min(100%, 280px) !important;
+  height: auto !important;
+  border-radius: 0.35rem;
+}
+
+.qr-countdown {
+  margin: 1rem 0 0;
+  color: var(--brand);
+  font-weight: 750;
+}
+
+.qr-instruction,
+.qr-placeholder,
+.whatsapp-policy {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.qr-instruction {
+  max-width: 35rem;
+  margin: 0.5rem 0 0;
+}
+
+.whatsapp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.whatsapp-actions button {
+  min-height: 2.9rem;
+}
+
+.danger-action {
+  padding: 0.7rem 1rem;
+  border: 1px solid #9a4037;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: #842f27;
+  font-weight: 700;
+}
+
+.danger-action:hover {
+  background: var(--error-bg);
+}
+
+.whatsapp-policy {
+  margin: 1.5rem 0 0;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.86rem;
+}
+
 :focus-visible {
   outline: 3px solid #e09932;
   outline-offset: 3px;
@@ -377,6 +563,15 @@ h2 {
   .dashboard-grid {
     grid-template-columns: 1fr;
   }
+
+  .whatsapp-metadata {
+    grid-template-columns: 1fr;
+  }
+
+  .whatsapp-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -384,5 +579,6 @@ h2 {
   *::before,
   *::after {
     scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }

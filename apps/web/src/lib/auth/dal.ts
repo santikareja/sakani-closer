@@ -10,6 +10,7 @@ import { SESSION_COOKIE_NAME } from "./cookie";
 import { getAuthRepository } from "./runtime";
 import { readCurrentSession } from "./session-reader";
 import type { CurrentSession } from "./types";
+import { getSafeRedirectPath } from "./http";
 
 export const getCurrentSession = cache(async (): Promise<CurrentSession | null> => {
   const cookieStore = await cookies();
@@ -21,10 +22,11 @@ export const getCurrentSession = cache(async (): Promise<CurrentSession | null> 
   );
 });
 
-export async function requireSession(): Promise<CurrentSession> {
+export async function requireSession(nextPath = "/dashboard"): Promise<CurrentSession> {
   const session = await getCurrentSession();
   if (!session) {
-    redirect("/login?next=/dashboard");
+    const safeNextPath = getSafeRedirectPath(nextPath);
+    redirect(`/login?next=${encodeURIComponent(safeNextPath)}`);
   }
   return requireSessionValue(session);
 }

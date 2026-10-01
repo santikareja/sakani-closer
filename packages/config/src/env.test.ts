@@ -13,6 +13,8 @@ const validWebEnv = {
   APP_URL: "http://localhost:3000",
   REDIS_URL: "redis://:password@localhost:6379",
   AUTH_SECRET: "test-auth-secret-at-least-32-characters-long",
+  WA_GATEWAY_URL: "http://wa-gateway:3001",
+  INTERNAL_SERVICE_TOKEN: "gateway-test-token-at-least-32-characters",
 };
 
 const validGatewayEnv = {
@@ -41,6 +43,15 @@ describe("service-specific environment validation", () => {
     expect(() => parseWebEnv(validWebEnv)).not.toThrow();
     expect(() => parseWebEnv({ ...validWebEnv, AUTH_SECRET: undefined })).toThrow("AUTH_SECRET");
     expect(() => parseWebEnv({ ...validWebEnv, AUTH_SECRET: "short" })).toThrow("AUTH_SECRET");
+  });
+
+  it("requires the private gateway URL and internal token only in the web runtime", () => {
+    expect(() => parseWebEnv({ ...validWebEnv, WA_GATEWAY_URL: undefined })).toThrow(
+      "WA_GATEWAY_URL",
+    );
+    expect(() => parseWebEnv({ ...validWebEnv, INTERNAL_SERVICE_TOKEN: undefined })).toThrow(
+      "INTERNAL_SERVICE_TOKEN",
+    );
   });
 
   it("keeps gateway configuration independent from database, Redis, and web auth", () => {

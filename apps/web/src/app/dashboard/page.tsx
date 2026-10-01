@@ -1,5 +1,6 @@
 import { requireSession } from "../../lib/auth/dal";
 import { getLiveHealthReport, type HealthReport } from "../../lib/health";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -46,11 +47,23 @@ export default async function DashboardPage() {
         </article>
       </section>
 
+      <section className="dashboard-settings" aria-labelledby="settings-title">
+        <p className="eyebrow">Pengaturan</p>
+        <h2 id="settings-title">Integrasi layanan</h2>
+        <Link className="dashboard-card dashboard-card-link" href="/dashboard/settings/whatsapp">
+          <span>
+            <strong>WhatsApp</strong>
+            <small>QR login dan status koneksi akun test</small>
+          </span>
+          <span aria-hidden="true">→</span>
+        </Link>
+      </section>
+
       <section className="boundary" aria-labelledby="phase-title">
-        <h2 id="phase-title">Phase 1 aktif</h2>
+        <h2 id="phase-title">Phase 2B aktif</h2>
         <p>
-          Autentikasi owner dan isolasi workspace sudah tersedia. WhatsApp, AI, RAG, CRM, dan
-          automasi belum diaktifkan.
+          QR login WhatsApp tersedia untuk satu akun test. Pengiriman pesan, AI, RAG, CRM, dan
+          automasi tetap belum diaktifkan.
         </p>
       </section>
     </main>

@@ -10,6 +10,7 @@ import {
   decodeSessionEncryptionKey,
   EncryptedFileAuthStore,
 } from "./encrypted-store.js";
+import { createBaileysAuthState } from "./baileys-auth-state.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -56,6 +57,38 @@ describe("EncryptedFileAuthStore", () => {
     };
 
     expect(first.iv).not.toBe(second.iv);
+  });
+
+  it("restores an encrypted session through a new store instance after restart", async () => {
+    const directory = await temporaryDirectory();
+    const key = randomBytes(32);
+    const firstProcess = new EncryptedFileAuthStore(directory, key);
+    await firstProcess.write("baileys:account:default:credentials", {
+      registered: true,
+      identity: Buffer.from("restart-safe"),
+    });
+
+    const restartedProcess = new EncryptedFileAuthStore(directory, key);
+    const restored = await restartedProcess.read<{ registered: boolean; identity: Buffer }>(
+      "baileys:account:default:credentials",
+    );
+
+    expect(restored?.registered).toBe(true);
+    expect(restored?.identity.equals(Buffer.from("restart-safe"))).toBe(true);
+  });
+
+  it("restores registered Baileys credentials after a gateway process restart", async () => {
+    const directory = await temporaryDirectory();
+    const key = randomBytes(32);
+    const firstStore = new EncryptedFileAuthStore(directory, key);
+    const firstAuth = await createBaileysAuthState(firstStore);
+    firstAuth.state.creds.registered = true;
+    await firstAuth.saveCreds();
+
+    const restartedStore = new EncryptedFileAuthStore(directory, key);
+    const restartedAuth = await createBaileysAuthState(restartedStore);
+
+    expect(restartedAuth.state.creds.registered).toBe(true);
   });
 
   it("rejects tampered ciphertext and a wrong encryption key", async () => {

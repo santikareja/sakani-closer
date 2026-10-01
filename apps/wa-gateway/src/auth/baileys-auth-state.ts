@@ -67,3 +67,12 @@ export async function createBaileysAuthState(
     saveCreds: () => store.write(credentialsKey, creds),
   };
 }
+
+export async function clearBaileysAuthState(
+  store: AuthStore,
+  accountId = "default",
+): Promise<void> {
+  const prefix = accountPrefix(accountId);
+  const keys = await store.list(`${prefix}:`);
+  await Promise.all(keys.map((key) => store.delete(key)));
+}

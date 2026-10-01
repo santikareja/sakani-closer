@@ -29,6 +29,8 @@ export const webEnvSchema = databaseEnvSchema.extend({
   APP_URL: z.string().url(),
   REDIS_URL: redisUrl,
   AUTH_SECRET: z.string().min(32),
+  WA_GATEWAY_URL: z.string().url(),
+  INTERNAL_SERVICE_TOKEN: z.string().min(32),
   HEALTHCHECK_TIMEOUT_MS: z.coerce.number().int().min(100).max(10_000).default(1_500),
 });
 

@@ -2,6 +2,7 @@ import { ConnectorAuthenticationError } from "./baileys-connector.js";
 import type { ConnectionStateMachine } from "./state-machine.js";
 import type {
   ConnectionSnapshot,
+  ConnectionStatus,
   DisconnectKind,
   GatewayConnector,
   GatewayLogger,
@@ -24,6 +25,7 @@ export class ConnectionManager {
   private retryAttempt = 0;
   private generation = 0;
   private connectPromise: Promise<ConnectionSnapshot> | undefined;
+  private phoneNumberMasked: string | undefined;
 
   constructor(
     private readonly connector: GatewayConnector,
@@ -32,10 +34,18 @@ export class ConnectionManager {
     private readonly logger: GatewayLogger,
     private readonly retryBaseDelayMs = 1_000,
     private readonly retryMaxDelayMs = 30_000,
-  ) {}
+    private readonly maxRetryAttempts = 5,
+  ) {
+    if (!Number.isInteger(maxRetryAttempts) || maxRetryAttempts < 0 || maxRetryAttempts > 20) {
+      throw new RangeError("Max retry attempts must be between 0 and 20");
+    }
+  }
 
-  getStatus(): ConnectionSnapshot {
-    return this.stateMachine.getSnapshot();
+  getStatus(): ConnectionStatus {
+    const snapshot = this.stateMachine.getSnapshot();
+    return snapshot.state === "connected" && this.phoneNumberMasked
+      ? { ...snapshot, phoneNumberMasked: this.phoneNumberMasked }
+      : snapshot;
   }
 
   connect(): Promise<ConnectionSnapshot> {
@@ -49,6 +59,7 @@ export class ConnectionManager {
     this.clearRetry();
     this.retryAttempt = 0;
     this.qrManager.clear();
+    this.phoneNumberMasked = undefined;
 
     const current = this.stateMachine.getSnapshot().state;
     if (current === "disconnected") return this.getStatus();
@@ -78,6 +89,7 @@ export class ConnectionManager {
     this.generation += 1;
     this.clearRetry();
     this.qrManager.clear();
+    this.phoneNumberMasked = undefined;
     const socket = this.socket;
     this.socket = undefined;
     if (socket) {
@@ -110,12 +122,13 @@ export class ConnectionManager {
   private async performOpen(isRetry: boolean): Promise<ConnectionSnapshot> {
     const generation = ++this.generation;
     this.qrManager.clear();
+    this.phoneNumberMasked = undefined;
     this.stateMachine.transition("connecting", isRetry ? "retry_started" : "connect_requested");
 
     try {
       const socket = await this.connector.open({
         onQr: (qr) => this.onQr(generation, qr),
-        onOpen: () => this.onOpen(generation),
+        onOpen: (phoneNumberMasked) => this.onOpen(generation, phoneNumberMasked),
         onClose: (kind) => this.onClose(generation, kind),
       });
       if (generation !== this.generation) {
@@ -142,11 +155,12 @@ export class ConnectionManager {
     this.logger.info({ event: "wa.qr.ready" }, "QR WhatsApp siap diambil melalui API internal");
   }
 
-  private onOpen(generation: number): void {
+  private onOpen(generation: number, phoneNumberMasked?: string): void {
     if (generation !== this.generation) return;
     this.clearRetry();
     this.retryAttempt = 0;
     this.qrManager.clear();
+    this.phoneNumberMasked = phoneNumberMasked;
     this.stateMachine.transition("connected", "connection_opened");
     this.logger.info({ event: "wa.connection.open" }, "Koneksi WhatsApp terbuka");
   }
@@ -155,6 +169,7 @@ export class ConnectionManager {
     if (generation !== this.generation) return;
     this.socket = undefined;
     this.qrManager.clear();
+    this.phoneNumberMasked = undefined;
 
     if (kind === "logged_out") {
       this.stateMachine.transition("logged_out", "logout_detected");
@@ -171,6 +186,14 @@ export class ConnectionManager {
 
   private scheduleRetry(): void {
     if (this.retryTimer) return;
+    if (this.retryAttempt >= this.maxRetryAttempts) {
+      this.stateMachine.transition("transient_error", "retry_exhausted");
+      this.logger.error(
+        { event: "wa.connection.retry_exhausted", attempts: this.retryAttempt },
+        "Batas percobaan ulang koneksi WhatsApp tercapai",
+      );
+      return;
+    }
     const delayMs = computeReconnectDelay(
       this.retryAttempt,
       this.retryBaseDelayMs,

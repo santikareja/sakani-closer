@@ -4,6 +4,10 @@ export function createHealthPayload(connection: ConnectionSnapshot) {
   return {
     status: "ok" as const,
     service: "wa-gateway" as const,
-    connection,
+    connection: {
+      state: connection.state,
+      reason: connection.reason,
+      updatedAt: connection.updatedAt,
+    },
   };
 }

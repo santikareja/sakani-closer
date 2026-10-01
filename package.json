@@ -2,7 +2,7 @@
   "name": "sakani-closer",
   "version": "0.1.0",
   "private": true,
-  "description": "Sakani Closer Phase 1 authentication and workspace foundation",
+  "description": "Sakani Closer Phase 2B owner-controlled WhatsApp QR login",
   "packageManager": "pnpm@11.1.2",
   "engines": {
     "node": ">=22.0.0",
