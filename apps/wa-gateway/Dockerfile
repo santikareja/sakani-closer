@@ -27,6 +27,7 @@ COPY --from=builder /app/apps/wa-gateway/package.json ./package.json
 COPY --from=builder /app/apps/wa-gateway/src ./src
 COPY --from=builder /app/packages/config /app/packages/config
 COPY --from=builder /app/packages/logger /app/packages/logger
+COPY --from=builder /app/packages/shared /app/packages/shared
 
 USER gateway
 EXPOSE 3001

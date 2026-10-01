@@ -3,6 +3,28 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("WhatsApp gateway Compose boundary", () => {
+  it("copies every workspace runtime dependency into the gateway runner image", async () => {
+    const [dockerfile, packageJsonText] = await Promise.all([
+      readFile("apps/wa-gateway/Dockerfile", "utf8"),
+      readFile("apps/wa-gateway/package.json", "utf8"),
+    ]);
+    const packageJson = JSON.parse(packageJsonText) as {
+      dependencies?: Record<string, string>;
+    };
+    const workspacePackages = Object.entries(packageJson.dependencies ?? {})
+      .filter(
+        ([packageName, version]) => packageName.startsWith("@sakani/") && version === "workspace:*",
+      )
+      .map(([packageName]) => packageName.slice("@sakani/".length));
+
+    expect(workspacePackages).toEqual(["config", "logger", "shared"]);
+    for (const packageDirectory of workspacePackages) {
+      expect(dockerfile).toContain(
+        `COPY --from=builder /app/packages/${packageDirectory} /app/packages/${packageDirectory}`,
+      );
+    }
+  });
+
   it("has no host port and no database or Redis dependency", async () => {
     const compose = await readFile("docker-compose.yml", "utf8");
     const gatewayBlock = compose.slice(
