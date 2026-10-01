@@ -6,6 +6,7 @@ import type {
   ConnectionCallbacks,
   GatewayConnector,
   GatewayLogger,
+  GatewayOpenOptions,
   GatewaySocket,
 } from "./types.js";
 import { QrManager } from "../qr/qr-manager.js";
@@ -21,12 +22,14 @@ function createLogger() {
 
 class FakeConnector implements GatewayConnector {
   callbacks: ConnectionCallbacks[] = [];
+  options: GatewayOpenOptions[] = [];
   openCount = 0;
   readonly socket: GatewaySocket = { close: vi.fn(async () => undefined) };
 
-  async open(callbacks: ConnectionCallbacks): Promise<GatewaySocket> {
+  async open(callbacks: ConnectionCallbacks, options: GatewayOpenOptions): Promise<GatewaySocket> {
     this.openCount += 1;
     this.callbacks.push(callbacks);
+    this.options.push(options);
     return this.socket;
   }
 }
@@ -67,6 +70,27 @@ describe("ConnectionManager", () => {
     await Promise.all([manager.connect(), manager.connect(), manager.connect()]);
 
     expect(connector.openCount).toBe(1);
+    await manager.disconnect();
+  });
+
+  it("allows only one socket when startup reconnect and manual connect overlap", async () => {
+    const connector = new FakeConnector();
+    const { logger } = createLogger();
+    const manager = new ConnectionManager(
+      connector,
+      new ConnectionStateMachine(),
+      new QrManager(),
+      logger,
+    );
+
+    await Promise.all([
+      manager.reconnectAtStartup(),
+      manager.connect(),
+      manager.reconnectAtStartup(),
+    ]);
+
+    expect(connector.openCount).toBe(1);
+    expect(connector.options).toEqual([{ allowQr: false }]);
     await manager.disconnect();
   });
 
@@ -135,8 +159,80 @@ describe("ConnectionManager", () => {
     expect(connector.openCount).toBe(1);
     await vi.advanceTimersByTimeAsync(1);
     expect(connector.openCount).toBe(2);
+    expect([0, 1, 2, 3, 4, 5, 6].map((attempt) => computeReconnectDelay(attempt))).toEqual([
+      1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000,
+    ]);
     expect(computeReconnectDelay(10)).toBe(30_000);
     await manager.disconnect();
+    vi.useRealTimers();
+  });
+
+  it("keeps QR disabled while retrying a registered startup session", async () => {
+    vi.useFakeTimers();
+    const connector = new FakeConnector();
+    const { logger } = createLogger();
+    const manager = new ConnectionManager(
+      connector,
+      new ConnectionStateMachine(),
+      new QrManager(),
+      logger,
+    );
+
+    await manager.reconnectAtStartup();
+    connector.callbacks[0]!.onClose("transient_error");
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(connector.openCount).toBe(2);
+    expect(connector.options).toEqual([{ allowQr: false }, { allowQr: false }]);
+    await manager.stop();
+    vi.useRealTimers();
+  });
+
+  it("cancels transient retry after an explicit disconnect", async () => {
+    vi.useFakeTimers();
+    const connector = new FakeConnector();
+    const { logger } = createLogger();
+    const manager = new ConnectionManager(
+      connector,
+      new ConnectionStateMachine(),
+      new QrManager(),
+      logger,
+    );
+
+    await manager.connect();
+    connector.callbacks[0]!.onClose("transient_error");
+    await manager.disconnect();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(connector.openCount).toBe(1);
+    expect(manager.getStatus()).toMatchObject({
+      state: "disconnected",
+      reason: "explicit_disconnect",
+    });
+    vi.useRealTimers();
+  });
+
+  it("cancels reconnect timers during graceful shutdown", async () => {
+    vi.useFakeTimers();
+    const connector = new FakeConnector();
+    const { logger } = createLogger();
+    const manager = new ConnectionManager(
+      connector,
+      new ConnectionStateMachine(),
+      new QrManager(),
+      logger,
+    );
+
+    await manager.reconnectAtStartup();
+    connector.callbacks[0]!.onClose("transient_error");
+    await manager.stop();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(connector.openCount).toBe(1);
+    expect(manager.getStatus()).toMatchObject({
+      state: "disconnected",
+      reason: "shutdown_complete",
+    });
     vi.useRealTimers();
   });
 
@@ -192,6 +288,7 @@ describe("ConnectionManager", () => {
     );
 
     const opening = manager.connect();
+    await Promise.resolve();
     await manager.disconnect();
     resolveSocket!(socket);
     await opening;

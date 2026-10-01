@@ -17,8 +17,8 @@ export default async function WhatsAppSettingsPage() {
         <p className="eyebrow">Pengaturan · WhatsApp</p>
         <h1>Hubungkan akun test</h1>
         <p className="lead">
-          Buat QR hanya saat Anda siap memindainya. Gateway tidak terhubung otomatis saat container
-          dimulai dan fitur pengiriman pesan belum tersedia.
+          Buat QR hanya saat Anda siap memindainya. Session valid akan dipulihkan otomatis setelah
+          restart tanpa membuat QR baru, dan fitur pengiriman pesan belum tersedia.
         </p>
       </header>
       <WhatsAppSettingsClient />

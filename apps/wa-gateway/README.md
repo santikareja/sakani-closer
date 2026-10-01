@@ -1,6 +1,6 @@
 # WhatsApp Gateway — Phase 2B
 
-This service supports owner-controlled QR login for one account through an authenticated web proxy. It starts an internal HTTP server in `disconnected` state and never connects to WhatsApp automatically. It exposes no send-message capability and does not subscribe to incoming messages.
+This service supports owner-controlled QR login for one account through an authenticated web proxy. At startup it reconnects only when the encrypted auth store contains `registered: true`; otherwise it stays `disconnected` and does not create QR. It exposes no send-message capability and does not subscribe to incoming messages.
 
 ## Baileys version
 
@@ -10,13 +10,13 @@ Baileys is an unofficial WhatsApp Web client and this version is a release candi
 
 ## State machine
 
-States are `disconnected`, `connecting`, `qr_ready`, `connected`, `logged_out`, `auth_error`, `transient_error`, and `stopping`. Every state change has a controlled reason and ISO timestamp. Raw Baileys errors, phone numbers, auth state, and QR payloads never enter the state snapshot.
+States are `disconnected`, `connecting`, `qr_ready`, `connected`, `logged_out`, `auth_error`, `transient_error`, and `stopping`. A registered startup session transitions `disconnected/service_started` → `connecting/service_started` → `connected/connection_opened`. An owner disconnect ends at `disconnected/explicit_disconnect`. Every state change has a controlled reason and ISO timestamp. Raw Baileys errors, phone numbers, auth state, and QR payloads never enter the state snapshot.
 
 `logged_out` and `auth_error` do not retry. A confirmed WhatsApp logout deletes that account's invalid encrypted auth records so the next explicit Connect can produce a fresh QR. `transient_error` retries at most five times with capped exponential backoff from 1 to 30 seconds, then remains `transient_error` with reason `retry_exhausted`. An explicit disconnect cancels pending retries and closes the local socket without calling Baileys logout, so valid encrypted credentials remain available for a later explicit Connect.
 
 ## Authentication persistence
 
-The `AuthStore` abstraction provides `read`, `write`, `delete`, and `list`. The current file adapter hashes logical keys for filenames, serializes Baileys buffers safely, and encrypts the logical key plus value using AES-256-GCM with a unique 96-bit IV for every write. A 32-byte base64url key and a 64-character hexadecimal key are decoded directly; other high-entropy secrets are domain-separated and normalized with SHA-256. It uses authenticated tags and atomic rename; tampering or a wrong key is rejected.
+The `AuthStore` abstraction provides `read`, `write`, `delete`, `list`, and `flush`. The current file adapter hashes logical keys for filenames, serializes Baileys buffers safely, and encrypts the logical key plus value using AES-256-GCM with a unique 96-bit IV for every write. A 32-byte base64url key and a 64-character hexadecimal key are decoded directly; other high-entropy secrets are domain-separated and normalized with SHA-256. It uses authenticated tags and atomic rename; tampering or a wrong key is rejected. The same encrypted account namespace stores the reconnect intent: missing means backward-compatible auto-reconnect, explicit Disconnect writes `false`, and manual Connect writes `true`.
 
 The adapter is suitable for the private Phase 2A single-instance volume, but it is not production-ready for horizontal replicas, remote KMS/HSM key custody, distributed locking, or automated encrypted backups.
 
@@ -45,6 +45,6 @@ The owner-facing routes are `/api/v1/whatsapp/status`, `/connect`, `/disconnect`
 ## Operational limits
 
 - No connection has been validated until the owner approves and performs a manual QR scan with a dedicated test number.
-- Credentials persist across ordinary restarts through the private volume, but startup remains disconnected by policy.
+- Registered credentials reconnect automatically across ordinary restarts; missing credentials remain disconnected and do not generate QR.
 - No incoming chat storage, media processing, groups, broadcasts, cold outreach, bulk send, or message sending exists.
 - A future sending phase must add a kill switch before exposing any send boundary.

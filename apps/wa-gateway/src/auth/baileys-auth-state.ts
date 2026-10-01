@@ -6,12 +6,54 @@ import {
   type SignalDataSet,
   type SignalDataTypeMap,
 } from "@whiskeysockets/baileys";
+import { z } from "zod";
 
 import type { AuthStore } from "./store.js";
 
 function accountPrefix(accountId: string): string {
   if (!/^[a-zA-Z0-9_-]{1,64}$/.test(accountId)) throw new TypeError("Invalid auth account id");
   return `baileys:account:${accountId}`;
+}
+
+function credentialsKey(accountId: string): string {
+  return `${accountPrefix(accountId)}:credentials`;
+}
+
+function connectionIntentKey(accountId: string): string {
+  return `${accountPrefix(accountId)}:connection-intent`;
+}
+
+const registeredCredentialsSchema = z.object({
+  registered: z.literal(true),
+});
+
+export async function hasRegisteredBaileysSession(
+  store: AuthStore,
+  accountId = "default",
+): Promise<boolean> {
+  const credentials = await store.read<unknown>(credentialsKey(accountId));
+  return registeredCredentialsSchema.safeParse(credentials).success;
+}
+
+const connectionIntentSchema = z.object({
+  autoReconnect: z.boolean(),
+});
+
+export async function readBaileysAutoReconnectIntent(
+  store: AuthStore,
+  accountId = "default",
+): Promise<boolean | undefined> {
+  const stored = await store.read<unknown>(connectionIntentKey(accountId));
+  if (stored === undefined) return undefined;
+  return connectionIntentSchema.parse(stored).autoReconnect;
+}
+
+export async function writeBaileysAutoReconnectIntent(
+  store: AuthStore,
+  autoReconnect: boolean,
+  accountId = "default",
+): Promise<void> {
+  await store.write(connectionIntentKey(accountId), { autoReconnect });
 }
 
 export async function createBaileysAuthState(
@@ -22,9 +64,9 @@ export async function createBaileysAuthState(
   saveCreds: () => Promise<void>;
 }> {
   const prefix = accountPrefix(accountId);
-  const credentialsKey = `${prefix}:credentials`;
+  const accountCredentialsKey = credentialsKey(accountId);
   const signalKey = (type: keyof SignalDataTypeMap, id: string) => `${prefix}:key:${type}:${id}`;
-  const creds = (await store.read<AuthenticationCreds>(credentialsKey)) ?? initAuthCreds();
+  const creds = (await store.read<AuthenticationCreds>(accountCredentialsKey)) ?? initAuthCreds();
 
   const state: AuthenticationState = {
     creds,
@@ -64,7 +106,7 @@ export async function createBaileysAuthState(
 
   return {
     state,
-    saveCreds: () => store.write(credentialsKey, creds),
+    saveCreds: () => store.write(accountCredentialsKey, creds),
   };
 }
 

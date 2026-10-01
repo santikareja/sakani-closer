@@ -16,7 +16,7 @@ export const connectionReasons = [
   "connect_requested",
   "qr_received",
   "connection_opened",
-  "disconnect_requested",
+  "explicit_disconnect",
   "logout_detected",
   "authentication_failed",
   "connection_interrupted",
@@ -50,8 +50,16 @@ export interface GatewaySocket {
   close(): Promise<void>;
 }
 
+export interface GatewayOpenOptions {
+  allowQr: boolean;
+}
+
 export interface GatewayConnector {
-  open(callbacks: ConnectionCallbacks): Promise<GatewaySocket>;
+  open(callbacks: ConnectionCallbacks, options: GatewayOpenOptions): Promise<GatewaySocket>;
+}
+
+export interface ConnectionIntentStore {
+  setAutoReconnect(enabled: boolean): Promise<void>;
 }
 
 export interface GatewayLogger {

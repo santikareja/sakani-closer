@@ -3,9 +3,20 @@ import { pathToFileURL } from "node:url";
 import { createLogger } from "@sakani/logger";
 import { ZodError } from "zod";
 
+import {
+  hasRegisteredBaileysSession,
+  readBaileysAutoReconnectIntent,
+  writeBaileysAutoReconnectIntent,
+} from "./auth/baileys-auth-state.js";
 import { EncryptedFileAuthStore } from "./auth/encrypted-store.js";
+import type { AuthStore } from "./auth/store.js";
 import { BaileysConnector } from "./connection/baileys-connector.js";
-import { ConnectionManager } from "./connection/manager.js";
+import {
+  ConnectionManager,
+  DEFAULT_MAX_RETRY_ATTEMPTS,
+  DEFAULT_RETRY_BASE_DELAY_MS,
+  DEFAULT_RETRY_MAX_DELAY_MS,
+} from "./connection/manager.js";
 import { ConnectionStateMachine } from "./connection/state-machine.js";
 import type { GatewayConnector, GatewayLogger } from "./connection/types.js";
 import { loadGatewayConfig, type GatewayConfig } from "./config.js";
@@ -22,6 +33,7 @@ export interface StartGatewayOptions {
   config?: GatewayConfig;
   connector?: GatewayConnector;
   logger?: GatewayLogger;
+  authStore?: AuthStore;
 }
 
 export interface StartupLogger {
@@ -92,14 +104,24 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<G
       level: config.logLevel,
       base: { service: "wa-gateway" },
     }) as GatewayLogger);
-  const authStore = new EncryptedFileAuthStore(
-    config.authDataDirectory,
-    config.sessionEncryptionKey,
-  );
+  const authStore =
+    options.authStore ??
+    new EncryptedFileAuthStore(config.authDataDirectory, config.sessionEncryptionKey);
   const qrManager = new QrManager();
   const stateMachine = new ConnectionStateMachine();
   const connector = options.connector ?? new BaileysConnector(authStore, logger);
-  const manager = new ConnectionManager(connector, stateMachine, qrManager, logger);
+  const manager = new ConnectionManager(
+    connector,
+    stateMachine,
+    qrManager,
+    logger,
+    DEFAULT_RETRY_BASE_DELAY_MS,
+    DEFAULT_RETRY_MAX_DELAY_MS,
+    DEFAULT_MAX_RETRY_ATTEMPTS,
+    {
+      setAutoReconnect: (enabled) => writeBaileysAutoReconnectIntent(authStore, enabled),
+    },
+  );
   const server = createGatewayServer({
     manager,
     qrManager,
@@ -108,9 +130,26 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<G
   });
 
   await listen(server, config.port);
+  let autoReconnect = false;
+  try {
+    const [hasRegisteredSession, reconnectIntent] = await Promise.all([
+      hasRegisteredBaileysSession(authStore),
+      readBaileysAutoReconnectIntent(authStore),
+    ]);
+    autoReconnect = hasRegisteredSession && reconnectIntent !== false;
+    if (autoReconnect) await manager.reconnectAtStartup();
+  } catch {
+    manager.authenticationFailedAtStartup();
+    logger.error(
+      { event: "wa.auth.startup_load_failed" },
+      "Session WhatsApp tersimpan tidak dapat dimuat",
+    );
+  }
   logger.info(
-    { event: "wa.gateway.started", port: config.port, autoConnect: false },
-    "Gateway WhatsApp siap tanpa koneksi otomatis",
+    { event: "wa.gateway.started", port: config.port, autoReconnect },
+    autoReconnect
+      ? "Gateway WhatsApp memulai reconnect session tersimpan"
+      : "Gateway WhatsApp siap tanpa session tersimpan",
   );
 
   let stopPromise: Promise<void> | undefined;

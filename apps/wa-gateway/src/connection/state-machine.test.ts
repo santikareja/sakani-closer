@@ -32,4 +32,18 @@ describe("ConnectionStateMachine", () => {
     );
     expect(() => machine.transition("connecting", "raw secret" as never)).toThrow(TypeError);
   });
+
+  it("records startup reconnect and explicit disconnect reasons", () => {
+    const machine = new ConnectionStateMachine();
+
+    expect(machine.transition("connecting", "service_started")).toMatchObject({
+      state: "connecting",
+      reason: "service_started",
+    });
+    machine.transition("connected", "connection_opened");
+    expect(machine.transition("disconnected", "explicit_disconnect")).toMatchObject({
+      state: "disconnected",
+      reason: "explicit_disconnect",
+    });
+  });
 });

@@ -22,7 +22,7 @@ function createDependencies(authenticated = true) {
       connection: { ...connection, state: "connecting", reason: "connect_requested" },
     })),
     disconnect: vi.fn(async (): Promise<GatewayStatusResponse> => ({
-      connection: { ...connection, reason: "disconnect_requested" },
+      connection: { ...connection, reason: "explicit_disconnect" },
     })),
     getQr: vi.fn(async () => ({ qr: "ephemeral-secret", expiresAt: "2026-10-01T00:01:00.000Z" })),
   };

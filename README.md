@@ -1,6 +1,6 @@
 # Sakani Closer
 
-Sakani Closer is an internal, AI-enabled WhatsApp property-marketing system for Sakani. This repository currently implements **Phase 2B**: the Phase 0 deployment foundation, Phase 1 owner/workspace authorization, and owner-controlled WhatsApp QR login with encrypted session persistence. The gateway does not connect automatically, send messages, process chats, call an AI provider, or manage leads.
+Sakani Closer is an internal, AI-enabled WhatsApp property-marketing system for Sakani. This repository currently implements **Phase 2B**: the Phase 0 deployment foundation, Phase 1 owner/workspace authorization, and owner-controlled WhatsApp QR login with encrypted session persistence. The gateway reconnects a valid registered session after restart, but it does not create QR automatically for a new account, send messages, process chats, call an AI provider, or manage leads.
 
 ## Phase 0 status
 
@@ -49,10 +49,11 @@ Included:
 - Protected owner page at `/dashboard/settings/whatsapp` with explicit connect, expiring QR, refresh, status, masked phone number, and explicit disconnect controls.
 - Authenticated same-origin web API that proxies to the private gateway with a server-only internal token.
 - Encrypted Baileys session recovery from the private named volume across process/container restarts.
+- Automatic startup reconnect only when encrypted credentials contain a registered session; a fresh installation remains disconnected without creating QR.
 - Logged-out/authentication failure terminal states and bounded transient reconnect with exponential backoff.
 - QR data kept only in gateway/browser memory until expiry; it is not stored in URLs, browser storage, logs, or the database.
 
-Still not included: production WhatsApp validation, automatic startup connection, incoming message processing, sending, groups, broadcasts, pairing codes, AI, RAG, CRM, media, or follow-up automation. A QR must not be scanned until all checks pass and the owner explicitly approves a dedicated test account.
+Still not included: incoming message processing, sending, groups, broadcasts, pairing codes, AI, RAG, CRM, media, or follow-up automation.
 
 ## Prerequisites
 
@@ -149,7 +150,7 @@ curl --fail http://127.0.0.1:3000/api/health
 
 ## Run the Phase 2B WhatsApp gateway
 
-The gateway starts in `disconnected` state and deliberately does not contact WhatsApp until an authenticated owner uses the web settings page:
+The gateway loads the encrypted credential record at startup. A registered session reconnects automatically without QR; a missing or unregistered session stays `disconnected` until an authenticated owner uses the web settings page:
 
 ```bash
 docker compose --profile gateway build wa-gateway
@@ -160,7 +161,7 @@ docker compose exec wa-gateway node -e "fetch('http://127.0.0.1:3001/health').th
 
 There is no host port for the gateway. Its `gateway_private` bridge permits outbound WhatsApp connectivity and service-to-service access but does not publish port `3001`. `/internal/*` requires `Authorization: Bearer <INTERNAL_SERVICE_TOKEN>`; `/health` is intentionally token-free for the container healthcheck. The browser never receives this internal token and reaches the QR only through the authenticated web backend.
 
-After both services are healthy, sign in as the owner and open `/dashboard/settings/whatsapp`. Use only a dedicated backup/test number and scan a QR only after explicit owner approval. Disconnect closes the active socket but preserves the encrypted session. A later explicit Connect can therefore reuse valid credentials; container startup itself remains disconnected.
+After both services are healthy, sign in as the owner and open `/dashboard/settings/whatsapp`. Disconnect closes the active socket, preserves the encrypted session, and persists a disabled reconnect intent, so subsequent restarts remain disconnected. A later explicit Connect re-enables startup reconnect and can reuse valid credentials without requesting QR.
 
 See [`apps/wa-gateway/README.md`](apps/wa-gateway/README.md) for the API, state machine, encryption format, current limitations, and operational notes.
 

@@ -7,7 +7,7 @@ import {
 } from "./types.js";
 
 const transitions: Record<ConnectionState, ReadonlySet<ConnectionState>> = {
-  disconnected: new Set(["connecting", "stopping"]),
+  disconnected: new Set(["connecting", "auth_error", "stopping"]),
   connecting: new Set([
     "qr_ready",
     "connected",

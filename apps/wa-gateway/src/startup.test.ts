@@ -1,10 +1,25 @@
 import type { AddressInfo } from "node:net";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { GatewayConfig } from "./config.js";
 import { loadGatewayConfig } from "./config.js";
-import type { GatewayConnector, GatewayLogger } from "./connection/types.js";
+import {
+  createBaileysAuthState,
+  readBaileysAutoReconnectIntent,
+  writeBaileysAutoReconnectIntent,
+} from "./auth/baileys-auth-state.js";
+import { EncryptedFileAuthStore } from "./auth/encrypted-store.js";
+import type {
+  ConnectionCallbacks,
+  GatewayConnector,
+  GatewayLogger,
+  GatewayOpenOptions,
+  GatewaySocket,
+} from "./connection/types.js";
 import {
   runGatewayEntrypoint,
   startGateway,
@@ -38,27 +53,55 @@ function createCapturedLogger(): {
   };
 }
 
-function createConnector(): GatewayConnector & { open: ReturnType<typeof vi.fn> } {
-  return {
-    open: vi.fn(async () => ({ close: vi.fn(async () => undefined) })),
-  };
+class CapturedConnector implements GatewayConnector {
+  callbacks: ConnectionCallbacks | undefined;
+  options: GatewayOpenOptions | undefined;
+  readonly socket: GatewaySocket = { close: vi.fn(async () => undefined) };
+  readonly open = vi.fn(
+    async (callbacks: ConnectionCallbacks, options: GatewayOpenOptions): Promise<GatewaySocket> => {
+      this.callbacks = callbacks;
+      this.options = options;
+      return this.socket;
+    },
+  );
+}
+
+function createConnector(): CapturedConnector {
+  return new CapturedConnector();
 }
 
 describe("WhatsApp gateway startup", () => {
   const runtimes: GatewayRuntime[] = [];
+  const temporaryDirectories: string[] = [];
 
   afterEach(async () => {
     await Promise.all(runtimes.splice(0).map((runtime) => runtime.stop()));
+    await Promise.all(
+      temporaryDirectories
+        .splice(0)
+        .map((directory) => rm(directory, { recursive: true, force: true })),
+    );
   });
 
-  async function startValidRuntime() {
+  async function startValidRuntime(hasRegisteredSession = false, autoReconnectIntent?: boolean) {
+    const authDataDirectory = await mkdtemp(path.join(tmpdir(), "sakani-wa-startup-test-"));
+    temporaryDirectories.push(authDataDirectory);
     const parsedConfig = loadGatewayConfig(validGatewayEnvironment);
-    const config: GatewayConfig = { ...parsedConfig, port: 0 };
+    const config: GatewayConfig = { ...parsedConfig, port: 0, authDataDirectory };
+    const authStore = new EncryptedFileAuthStore(authDataDirectory, encryptionSecret);
+    if (hasRegisteredSession) {
+      const auth = await createBaileysAuthState(authStore);
+      auth.state.creds.registered = true;
+      await auth.saveCreds();
+    }
+    if (autoReconnectIntent !== undefined) {
+      await writeBaileysAutoReconnectIntent(authStore, autoReconnectIntent);
+    }
     const connector = createConnector();
     const { logger, entries } = createCapturedLogger();
-    const runtime = await startGateway({ config, connector, logger });
+    const runtime = await startGateway({ config, connector, logger, authStore });
     runtimes.push(runtime);
-    return { connector, entries, runtime };
+    return { authStore, connector, entries, runtime };
   }
 
   it("starts with a valid gateway-only configuration", async () => {
@@ -119,10 +162,71 @@ describe("WhatsApp gateway startup", () => {
     expect(body.connection.state).toBe("disconnected");
   });
 
-  it("does not open a Baileys connection during startup", async () => {
+  it("stays disconnected and does not create a socket without a stored session", async () => {
     const { connector } = await startValidRuntime();
 
     expect(connector.open).not.toHaveBeenCalled();
+  });
+
+  it("reconnects automatically when encrypted registered credentials exist", async () => {
+    const { connector, runtime } = await startValidRuntime(true);
+
+    expect(connector.open).toHaveBeenCalledOnce();
+    expect(connector.options).toEqual({ allowQr: false });
+    expect(runtime.manager.getStatus()).toMatchObject({
+      state: "connecting",
+      reason: "service_started",
+    });
+
+    connector.callbacks!.onOpen("62812****789");
+    expect(runtime.manager.getStatus()).toMatchObject({
+      state: "connected",
+      phoneNumberMasked: "62812****789",
+    });
+  });
+
+  it("honors a persisted explicit disconnect after restart", async () => {
+    const { connector, runtime } = await startValidRuntime(true, false);
+
+    expect(connector.open).not.toHaveBeenCalled();
+    expect(runtime.manager.getStatus()).toMatchObject({
+      state: "disconnected",
+      reason: "service_started",
+    });
+  });
+
+  it("persists explicit disconnect without deleting registered credentials", async () => {
+    const { authStore, connector, runtime } = await startValidRuntime(true);
+    connector.callbacks!.onOpen("62812****789");
+
+    await runtime.manager.disconnect();
+
+    expect(await readBaileysAutoReconnectIntent(authStore)).toBe(false);
+    const restored = await createBaileysAuthState(authStore);
+    expect(restored.state.creds.registered).toBe(true);
+
+    await runtime.manager.connect();
+    expect(await readBaileysAutoReconnectIntent(authStore)).toBe(true);
+  });
+
+  it("does not publish or request QR during registered-session startup", async () => {
+    const { connector, runtime } = await startValidRuntime(true);
+    const address = runtime.server.address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${address.port}/internal/qr`, {
+      headers: { authorization: `Bearer ${internalToken}` },
+    });
+
+    expect(connector.options).toEqual({ allowQr: false });
+    expect(response.status).toBe(404);
+  });
+
+  it("shuts down the active socket before closing the HTTP server", async () => {
+    const { connector, runtime } = await startValidRuntime(true);
+
+    await runtime.stop();
+
+    expect(connector.socket.close).toHaveBeenCalledOnce();
+    expect(runtime.server.listening).toBe(false);
   });
 
   it("never includes configured secrets in startup diagnostics", async () => {

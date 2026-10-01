@@ -12,6 +12,7 @@ import type {
   DisconnectKind,
   GatewayConnector,
   GatewayLogger,
+  GatewayOpenOptions,
   GatewaySocket,
 } from "./types.js";
 
@@ -65,7 +66,7 @@ export class BaileysConnector implements GatewayConnector {
     private readonly socketFactory: typeof makeWASocket = makeWASocket,
   ) {}
 
-  async open(callbacks: ConnectionCallbacks): Promise<GatewaySocket> {
+  async open(callbacks: ConnectionCallbacks, options: GatewayOpenOptions): Promise<GatewaySocket> {
     let auth: Awaited<ReturnType<typeof createBaileysAuthState>>;
     try {
       auth = await createBaileysAuthState(this.authStore);
@@ -86,8 +87,16 @@ export class BaileysConnector implements GatewayConnector {
     });
 
     let closed = false;
+    let pendingCredentialWrites = Promise.resolve();
+    const flushCredentialWrites = async () => {
+      await pendingCredentialWrites.catch(() => undefined);
+      await this.authStore.flush();
+    };
     socket.ev.on("creds.update", () => {
-      void auth.saveCreds().catch(() => {
+      if (closed) return;
+      const write = pendingCredentialWrites.catch(() => undefined).then(auth.saveCreds);
+      pendingCredentialWrites = write;
+      void write.catch(() => {
         this.logger.error(
           { event: "wa.auth.persist_failed" },
           "Gagal menyimpan kredensial WhatsApp",
@@ -101,13 +110,20 @@ export class BaileysConnector implements GatewayConnector {
     });
 
     socket.ev.on("connection.update", (update) => {
-      if (update.qr) callbacks.onQr(update.qr);
+      if (update.qr && options.allowQr) callbacks.onQr(update.qr);
+      if (update.qr && !options.allowQr && !closed) {
+        closed = true;
+        callbacks.onClose("auth_error");
+        void socket.end(new Error("unexpected_qr_for_registered_session"));
+        return;
+      }
       if (update.connection === "open") callbacks.onOpen(getMaskedSocketIdentity(socket));
       if (update.connection === "close" && !closed) {
         closed = true;
         const kind = classifyDisconnect(update.lastDisconnect?.error);
         if (kind === "logged_out") {
-          void clearBaileysAuthState(this.authStore)
+          void flushCredentialWrites()
+            .then(() => clearBaileysAuthState(this.authStore))
             .then(() => callbacks.onClose("logged_out"))
             .catch(() => {
               this.logger.error(
@@ -125,7 +141,11 @@ export class BaileysConnector implements GatewayConnector {
     return {
       close: async () => {
         closed = true;
-        await socket.end(undefined);
+        try {
+          await socket.end(undefined);
+        } finally {
+          await flushCredentialWrites();
+        }
       },
     };
   }

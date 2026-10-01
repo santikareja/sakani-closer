@@ -38,6 +38,7 @@ describe("Baileys disconnect classification", () => {
       async list(prefix = "") {
         return [...values.keys()].filter((key) => key.startsWith(prefix));
       },
+      flush: vi.fn(async () => undefined),
     };
     const noop = () => undefined;
     const logger: GatewayLogger = { debug: noop, info: noop, warn: noop, error: noop };
@@ -58,7 +59,10 @@ describe("Baileys disconnect classification", () => {
     const connector = new BaileysConnector(store, logger, (() => socket) as never);
     const onOpen = vi.fn();
 
-    const gatewaySocket = await connector.open({ onQr: noop, onOpen, onClose: noop });
+    const gatewaySocket = await connector.open(
+      { onQr: noop, onOpen, onClose: noop },
+      { allowQr: true },
+    );
     handlers.get("creds.update")!();
     handlers.get("connection.update")!({ connection: "open" });
 
@@ -92,6 +96,7 @@ describe("Baileys disconnect classification", () => {
       async list(prefix = "") {
         return [...values.keys()].filter((key) => key.startsWith(prefix));
       },
+      flush: vi.fn(async () => undefined),
     };
     const noop = () => undefined;
     const logger: GatewayLogger = { debug: noop, info: noop, warn: noop, error: noop };
@@ -108,7 +113,7 @@ describe("Baileys disconnect classification", () => {
     };
     const onClose = vi.fn();
     const connector = new BaileysConnector(store, logger, (() => socket) as never);
-    await connector.open({ onQr: noop, onOpen: noop, onClose });
+    await connector.open({ onQr: noop, onOpen: noop, onClose }, { allowQr: true });
 
     handlers.get("connection.update")!({
       connection: "close",
@@ -118,5 +123,84 @@ describe("Baileys disconnect classification", () => {
     await vi.waitFor(() => expect(onClose).toHaveBeenCalledWith("logged_out"));
     expect(values.size).toBe(0);
     expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("suppresses QR for a registered-session reconnect", async () => {
+    const values = new Map<string, unknown>();
+    const store: AuthStore = {
+      async read<T>(key: string) {
+        return values.get(key) as T | undefined;
+      },
+      async write(key, value) {
+        values.set(key, value);
+      },
+      async delete(key) {
+        values.delete(key);
+      },
+      async list(prefix = "") {
+        return [...values.keys()].filter((key) => key.startsWith(prefix));
+      },
+      flush: vi.fn(async () => undefined),
+    };
+    const noop = () => undefined;
+    const logger: GatewayLogger = { debug: noop, info: noop, warn: noop, error: noop };
+    const handlers = new Map<string, (update?: Record<string, unknown>) => void>();
+    const socket = {
+      ev: {
+        on(event: string, handler: (update?: Record<string, unknown>) => void) {
+          handlers.set(event, handler);
+        },
+      },
+      end: vi.fn(async () => undefined),
+    };
+    const onQr = vi.fn();
+    const onClose = vi.fn();
+    const connector = new BaileysConnector(store, logger, (() => socket) as never);
+    await connector.open({ onQr, onOpen: noop, onClose }, { allowQr: false });
+
+    handlers.get("connection.update")!({ qr: "must-not-be-published" });
+
+    expect(onQr).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledWith("auth_error");
+    expect(socket.end).toHaveBeenCalledOnce();
+  });
+
+  it("waits for pending credential writes before socket close completes", async () => {
+    let finishWrite: (() => void) | undefined;
+    const writeFinished = new Promise<void>((resolve) => {
+      finishWrite = resolve;
+    });
+    const store: AuthStore = {
+      read: vi.fn(async () => undefined),
+      write: vi.fn(() => writeFinished),
+      delete: vi.fn(async () => undefined),
+      list: vi.fn(async () => []),
+      flush: vi.fn(async () => undefined),
+    };
+    const noop = () => undefined;
+    const logger: GatewayLogger = { debug: noop, info: noop, warn: noop, error: noop };
+    const handlers = new Map<string, (update?: Record<string, unknown>) => void>();
+    const socket = {
+      ev: {
+        on(event: string, handler: (update?: Record<string, unknown>) => void) {
+          handlers.set(event, handler);
+        },
+      },
+      end: vi.fn(async () => undefined),
+    };
+    const connector = new BaileysConnector(store, logger, (() => socket) as never);
+    const gatewaySocket = await connector.open(
+      { onQr: noop, onOpen: noop, onClose: noop },
+      { allowQr: true },
+    );
+    handlers.get("creds.update")!();
+    const closePromise = gatewaySocket.close();
+
+    await Promise.resolve();
+    expect(store.flush).not.toHaveBeenCalled();
+    finishWrite!();
+    await closePromise;
+
+    expect(store.flush).toHaveBeenCalledOnce();
   });
 });

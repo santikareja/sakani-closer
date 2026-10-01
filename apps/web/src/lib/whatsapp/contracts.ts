@@ -16,7 +16,7 @@ export const connectionReasonSchema = z.enum([
   "connect_requested",
   "qr_received",
   "connection_opened",
-  "disconnect_requested",
+  "explicit_disconnect",
   "logout_detected",
   "authentication_failed",
   "connection_interrupted",

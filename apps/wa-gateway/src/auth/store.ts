@@ -3,4 +3,5 @@ export interface AuthStore {
   write<T>(key: string, value: T): Promise<void>;
   delete(key: string): Promise<void>;
   list(prefix?: string): Promise<string[]>;
+  flush(): Promise<void>;
 }

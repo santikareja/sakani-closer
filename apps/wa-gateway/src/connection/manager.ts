@@ -3,12 +3,17 @@ import type { ConnectionStateMachine } from "./state-machine.js";
 import type {
   ConnectionSnapshot,
   ConnectionStatus,
+  ConnectionIntentStore,
   DisconnectKind,
   GatewayConnector,
   GatewayLogger,
   GatewaySocket,
 } from "./types.js";
 import type { QrManager } from "../qr/qr-manager.js";
+
+export const DEFAULT_RETRY_BASE_DELAY_MS = 1_000;
+export const DEFAULT_RETRY_MAX_DELAY_MS = 30_000;
+export const DEFAULT_MAX_RETRY_ATTEMPTS = 5;
 
 export function computeReconnectDelay(
   attempt: number,
@@ -26,15 +31,18 @@ export class ConnectionManager {
   private generation = 0;
   private connectPromise: Promise<ConnectionSnapshot> | undefined;
   private phoneNumberMasked: string | undefined;
+  private allowQrForCurrentLifecycle = true;
+  private intentWrite = Promise.resolve();
 
   constructor(
     private readonly connector: GatewayConnector,
     private readonly stateMachine: ConnectionStateMachine,
     private readonly qrManager: QrManager,
     private readonly logger: GatewayLogger,
-    private readonly retryBaseDelayMs = 1_000,
-    private readonly retryMaxDelayMs = 30_000,
-    private readonly maxRetryAttempts = 5,
+    private readonly retryBaseDelayMs = DEFAULT_RETRY_BASE_DELAY_MS,
+    private readonly retryMaxDelayMs = DEFAULT_RETRY_MAX_DELAY_MS,
+    private readonly maxRetryAttempts = DEFAULT_MAX_RETRY_ATTEMPTS,
+    private readonly connectionIntentStore?: ConnectionIntentStore,
   ) {
     if (!Number.isInteger(maxRetryAttempts) || maxRetryAttempts < 0 || maxRetryAttempts > 20) {
       throw new RangeError("Max retry attempts must be between 0 and 20");
@@ -49,9 +57,33 @@ export class ConnectionManager {
   }
 
   connect(): Promise<ConnectionSnapshot> {
+    const state = this.stateMachine.getSnapshot().state;
+    if (
+      this.connectPromise ||
+      state === "connecting" ||
+      state === "qr_ready" ||
+      state === "connected"
+    ) {
+      return this.openConnection("manual");
+    }
     this.clearRetry();
     this.retryAttempt = 0;
-    return this.openConnection(false);
+    this.allowQrForCurrentLifecycle = true;
+    return this.connectManually(this.generation);
+  }
+
+  reconnectAtStartup(): Promise<ConnectionSnapshot> {
+    const state = this.stateMachine.getSnapshot().state;
+    if (this.connectPromise || state !== "disconnected") return Promise.resolve(this.getStatus());
+    this.clearRetry();
+    this.retryAttempt = 0;
+    this.allowQrForCurrentLifecycle = false;
+    return this.openConnection("startup");
+  }
+
+  authenticationFailedAtStartup(): ConnectionSnapshot {
+    if (this.stateMachine.getSnapshot().state !== "disconnected") return this.getStatus();
+    return this.stateMachine.transition("auth_error", "authentication_failed");
   }
 
   async disconnect(): Promise<ConnectionSnapshot> {
@@ -60,6 +92,7 @@ export class ConnectionManager {
     this.retryAttempt = 0;
     this.qrManager.clear();
     this.phoneNumberMasked = undefined;
+    await this.persistAutoReconnectIntent(false);
 
     const current = this.stateMachine.getSnapshot().state;
     if (current === "disconnected") return this.getStatus();
@@ -75,7 +108,7 @@ export class ConnectionManager {
       }
     }
 
-    return this.stateMachine.transition("disconnected", "disconnect_requested");
+    return this.stateMachine.transition("disconnected", "explicit_disconnect");
   }
 
   async stop(): Promise<ConnectionSnapshot> {
@@ -102,10 +135,17 @@ export class ConnectionManager {
         );
       }
     }
+    await this.intentWrite;
     return this.stateMachine.transition("disconnected", "shutdown_complete");
   }
 
-  private openConnection(isRetry: boolean): Promise<ConnectionSnapshot> {
+  private async connectManually(requestGeneration: number): Promise<ConnectionSnapshot> {
+    await this.persistAutoReconnectIntent(true);
+    if (requestGeneration !== this.generation) return this.getStatus();
+    return this.openConnection("manual");
+  }
+
+  private openConnection(mode: "manual" | "startup" | "retry"): Promise<ConnectionSnapshot> {
     if (this.connectPromise) return this.connectPromise;
 
     const state = this.stateMachine.getSnapshot().state;
@@ -113,24 +153,34 @@ export class ConnectionManager {
       return Promise.resolve(this.getStatus());
     }
 
-    this.connectPromise = this.performOpen(isRetry).finally(() => {
+    this.connectPromise = this.performOpen(mode).finally(() => {
       this.connectPromise = undefined;
     });
     return this.connectPromise;
   }
 
-  private async performOpen(isRetry: boolean): Promise<ConnectionSnapshot> {
+  private async performOpen(mode: "manual" | "startup" | "retry"): Promise<ConnectionSnapshot> {
     const generation = ++this.generation;
     this.qrManager.clear();
     this.phoneNumberMasked = undefined;
-    this.stateMachine.transition("connecting", isRetry ? "retry_started" : "connect_requested");
+    const reason =
+      mode === "retry"
+        ? "retry_started"
+        : mode === "startup"
+          ? "service_started"
+          : "connect_requested";
+    this.stateMachine.transition("connecting", reason);
+    const allowQr = this.allowQrForCurrentLifecycle;
 
     try {
-      const socket = await this.connector.open({
-        onQr: (qr) => this.onQr(generation, qr),
-        onOpen: (phoneNumberMasked) => this.onOpen(generation, phoneNumberMasked),
-        onClose: (kind) => this.onClose(generation, kind),
-      });
+      const socket = await this.connector.open(
+        {
+          onQr: (qr) => (allowQr ? this.onQr(generation, qr) : this.onUnexpectedQr(generation)),
+          onOpen: (phoneNumberMasked) => this.onOpen(generation, phoneNumberMasked),
+          onClose: (kind) => this.onClose(generation, kind),
+        },
+        { allowQr },
+      );
       if (generation !== this.generation) {
         await socket.close().catch(() => undefined);
         return this.getStatus();
@@ -139,6 +189,7 @@ export class ConnectionManager {
     } catch (error) {
       if (generation !== this.generation) return this.getStatus();
       if (error instanceof ConnectorAuthenticationError) {
+        await this.persistAutoReconnectIntent(false);
         return this.stateMachine.transition("auth_error", "authentication_failed");
       }
       this.stateMachine.transition("transient_error", "connection_interrupted");
@@ -153,6 +204,21 @@ export class ConnectionManager {
     this.qrManager.publish(qr);
     this.stateMachine.transition("qr_ready", "qr_received");
     this.logger.info({ event: "wa.qr.ready" }, "QR WhatsApp siap diambil melalui API internal");
+  }
+
+  private onUnexpectedQr(generation: number): void {
+    if (generation !== this.generation) return;
+    this.generation += 1;
+    this.qrManager.clear();
+    const socket = this.socket;
+    this.socket = undefined;
+    if (socket) void socket.close().catch(() => undefined);
+    void this.persistAutoReconnectIntent(false);
+    this.stateMachine.transition("auth_error", "authentication_failed");
+    this.logger.warn(
+      { event: "wa.auth.unexpected_qr" },
+      "Session tersimpan meminta QR baru dan tidak akan dicoba ulang otomatis",
+    );
   }
 
   private onOpen(generation: number, phoneNumberMasked?: string): void {
@@ -172,10 +238,12 @@ export class ConnectionManager {
     this.phoneNumberMasked = undefined;
 
     if (kind === "logged_out") {
+      void this.persistAutoReconnectIntent(false);
       this.stateMachine.transition("logged_out", "logout_detected");
       return;
     }
     if (kind === "auth_error") {
+      void this.persistAutoReconnectIntent(false);
       this.stateMachine.transition("auth_error", "authentication_failed");
       return;
     }
@@ -206,12 +274,26 @@ export class ConnectionManager {
     );
     this.retryTimer = setTimeout(() => {
       this.retryTimer = undefined;
-      void this.openConnection(true);
+      void this.openConnection("retry");
     }, delayMs);
   }
 
   private clearRetry(): void {
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = undefined;
+  }
+
+  private persistAutoReconnectIntent(enabled: boolean): Promise<void> {
+    if (!this.connectionIntentStore) return Promise.resolve();
+    const write = this.intentWrite
+      .catch(() => undefined)
+      .then(() => this.connectionIntentStore!.setAutoReconnect(enabled));
+    this.intentWrite = write.catch(() => {
+      this.logger.error(
+        { event: "wa.connection.intent_persist_failed" },
+        "Kebijakan reconnect WhatsApp gagal disimpan",
+      );
+    });
+    return this.intentWrite;
   }
 }

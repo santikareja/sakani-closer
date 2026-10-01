@@ -143,6 +143,10 @@ export class EncryptedFileAuthStore implements AuthStore {
     return keys.sort();
   }
 
+  async flush(): Promise<void> {
+    await Promise.all([...this.keyLocks.values()]);
+  }
+
   private filePath(key: string): string {
     const digest = createHash("sha256").update(key).digest("hex");
     return path.join(this.directory, `${digest}.auth`);
