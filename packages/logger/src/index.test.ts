@@ -18,10 +18,24 @@ describe("logger", () => {
       workspaceId: "00000000-0000-4000-8000-000000000001",
     });
 
-    logger.info({ apiKey: "should-not-leak", message: { content: "private chat" } }, "event");
+    logger.info(
+      {
+        apiKey: "should-not-leak",
+        passwordHash: "password-hash-must-not-leak",
+        sessionToken: "session-token-must-not-leak",
+        req: { headers: { cookie: "sakani_session=must-not-leak" } },
+        AUTH_SECRET: "auth-secret-must-not-leak",
+        message: { content: "private chat" },
+      },
+      "event",
+    );
 
     expect(output).not.toContain("should-not-leak");
     expect(output).not.toContain("private chat");
+    expect(output).not.toContain("password-hash-must-not-leak");
+    expect(output).not.toContain("session-token-must-not-leak");
+    expect(output).not.toContain("sakani_session=must-not-leak");
+    expect(output).not.toContain("auth-secret-must-not-leak");
     expect(output).toContain("[REDACTED]");
     expect(output).toContain("request-123");
   });

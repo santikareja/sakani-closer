@@ -8,6 +8,7 @@ const validEnv = {
   APP_URL: "http://localhost:3000",
   DATABASE_URL: "postgresql://user:password@localhost:5432/sakani",
   REDIS_URL: "redis://:password@localhost:6379",
+  AUTH_SECRET: "test-auth-secret-at-least-32-characters-long",
 };
 
 describe("environment validation", () => {
@@ -24,8 +25,9 @@ describe("environment validation", () => {
     );
   });
 
-  it("keeps later-phase secrets optional for Phase 0 startup", () => {
+  it("requires the Phase 1 authentication secret", () => {
     expect(() => parseServerEnv(validEnv)).not.toThrow();
+    expect(() => parseServerEnv({ ...validEnv, AUTH_SECRET: "short" })).toThrow("AUTH_SECRET");
     expect(laterPhaseEnvSchema.safeParse({}).success).toBe(false);
   });
 });

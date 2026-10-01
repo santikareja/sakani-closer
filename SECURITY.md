@@ -2,7 +2,7 @@
 
 ## Initial threat model
 
-Phase 0 protects against accidental secret disclosure, public database/cache exposure, cross-workspace query mistakes, dependency-health hangs, and verbose production errors. Later phases must additionally address authentication, authorization, prompt injection, file processing, encrypted provider keys, encrypted WhatsApp sessions, opt-out enforcement, and human takeover.
+Phase 1 protects against accidental secret disclosure, public database/cache exposure, cross-workspace query mistakes, dependency-health hangs, verbose production errors, password disclosure, session fixation, cross-site auth mutations, open redirects, and basic login brute force. Later phases must additionally address prompt injection, file processing, encrypted provider keys, encrypted WhatsApp sessions, opt-out enforcement, and human takeover.
 
 ## Secret handling
 
@@ -20,13 +20,22 @@ PostgreSQL and Redis map only to `127.0.0.1` for local tooling and must never be
 
 Production API errors return stable codes and correlation IDs without stack traces, connection strings, credentials, or raw dependency errors.
 
+## Authentication and sessions
+
+- Passwords use Argon2id and are never stored or logged in plaintext.
+- Login creates a fresh random 256-bit token. Only its SHA-256 hash is stored in PostgreSQL.
+- The cookie payload is encrypted and authenticated with `AUTH_SECRET`, is HTTP-only, SameSite=Lax, expires after seven days, and is Secure in production.
+- Logout revokes the database session and expires the browser cookie.
+- Auth mutations require the configured application origin. Post-login redirects remain same-origin.
+- Redis enforces a five-attempt, fifteen-minute login window per hashed IP/email key.
+- Session lookup, membership checks, and audit records always include the workspace context.
+
 ## Reporting
 
 Report vulnerabilities privately to the repository owner. Include impact, reproduction steps with synthetic data, and a suggested mitigation. Do not open a public issue containing credentials or customer data.
 
-## Not implemented in Phase 0
+## Not implemented after Phase 1
 
-- End-user authentication and role authorization.
 - Application-level encryption for provider keys and WhatsApp sessions.
 - Upload scanning, MIME enforcement, and private object storage.
 - Caddy TLS termination and production monitoring.

@@ -20,6 +20,7 @@ export const serverEnvSchema = z.object({
   APP_URL: z.string().url(),
   DATABASE_URL: postgresUrl,
   REDIS_URL: redisUrl,
+  AUTH_SECRET: z.string().min(32),
   HEALTHCHECK_TIMEOUT_MS: z.coerce.number().int().min(100).max(10_000).default(1_500),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
 });
@@ -27,7 +28,6 @@ export const serverEnvSchema = z.object({
 export const laterPhaseEnvSchema = z.object({
   SESSION_ENCRYPTION_KEY: z.string().min(32),
   API_ENCRYPTION_KEY: z.string().min(32),
-  AUTH_SECRET: z.string().min(32),
   INTERNAL_SERVICE_TOKEN: z.string().min(32),
   WA_GATEWAY_URL: z.string().url(),
 });

@@ -45,6 +45,142 @@ a {
   padding: clamp(3rem, 8vw, 7rem) 0;
 }
 
+.auth-shell,
+.dashboard-shell {
+  width: min(100% - 2rem, 68rem);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: clamp(2rem, 7vw, 5rem) 0;
+}
+
+.auth-shell {
+  display: grid;
+  place-items: center;
+}
+
+.auth-card {
+  width: min(100%, 31rem);
+  padding: clamp(1.5rem, 5vw, 2.5rem);
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: var(--surface);
+  box-shadow: 0 1.2rem 3rem rgba(24, 35, 29, 0.08);
+}
+
+.auth-card h1,
+.dashboard-header h1 {
+  font-size: clamp(2.1rem, 7vw, 3.5rem);
+  line-height: 1;
+}
+
+.auth-intro,
+.auth-switch,
+.field-help,
+.dashboard-card p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.auth-form {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.auth-form input {
+  width: 100%;
+  min-height: 2.9rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #b7c0ba;
+  border-radius: 0.5rem;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+}
+
+.auth-form button,
+.dashboard-header button {
+  cursor: pointer;
+  font: inherit;
+}
+
+.field-help {
+  margin: -0.4rem 0 0;
+  font-size: 0.82rem;
+}
+
+.notice {
+  padding: 0.75rem 0.85rem;
+  border-radius: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.success-notice {
+  background: var(--ok-bg);
+  color: var(--ok-text);
+}
+
+.error-notice {
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
+.auth-switch {
+  margin: 1.5rem 0 0;
+  font-size: 0.9rem;
+}
+
+.auth-switch a {
+  color: var(--brand);
+  font-weight: 700;
+}
+
+.dashboard-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 3rem;
+}
+
+.dashboard-card {
+  padding: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--surface);
+}
+
+.dashboard-card h2,
+.dashboard-card p {
+  overflow-wrap: anywhere;
+}
+
+.dashboard-card p {
+  margin: 0.45rem 0 0;
+}
+
+.card-label {
+  margin: 0 0 1rem !important;
+  color: var(--brand) !important;
+  font-size: 0.76rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .hero,
 .health-panel {
   max-width: 48rem;
@@ -230,6 +366,15 @@ h2 {
   }
 
   .metadata {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dashboard-grid {
     grid-template-columns: 1fr;
   }
 }

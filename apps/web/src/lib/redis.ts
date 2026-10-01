@@ -9,17 +9,19 @@ export interface PingableRedisClient {
 let redisClient: RedisClientType | undefined;
 
 export function getRedisClient(url: string, connectTimeout = 5_000): RedisClientType {
-  redisClient ??= createClient({
-    url,
-    socket: {
-      connectTimeout,
-      reconnectStrategy: false,
-    },
-  });
+  if (!redisClient) {
+    redisClient = createClient({
+      url,
+      socket: {
+        connectTimeout,
+        reconnectStrategy: false,
+      },
+    });
 
-  redisClient.on("error", () => {
-    // Connection failures are reported by the health boundary without logging credentials.
-  });
+    redisClient.on("error", () => {
+      // Connection failures are reported by the health boundary without logging credentials.
+    });
+  }
 
   return redisClient;
 }

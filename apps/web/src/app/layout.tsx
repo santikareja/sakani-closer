@@ -5,7 +5,7 @@ import "./styles.css";
 
 export const metadata: Metadata = {
   title: "Sakani Closer",
-  description: "Fondasi layanan internal Sakani Closer",
+  description: "Dashboard internal Sakani Closer",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

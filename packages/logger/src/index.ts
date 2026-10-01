@@ -5,6 +5,8 @@ import pino, { type Logger, type LoggerOptions } from "pino";
 
 const REDACTED_PATHS = [
   "password",
+  "passwordHash",
+  "password_hash",
   "apiKey",
   "api_key",
   "token",
@@ -15,6 +17,13 @@ const REDACTED_PATHS = [
   "headers.authorization",
   "whatsappAuthState",
   "session",
+  "sessionToken",
+  "session_token",
+  "cookie",
+  "req.headers.cookie",
+  "headers.cookie",
+  "authSecret",
+  "AUTH_SECRET",
   "message.content",
 ] as const;
 
