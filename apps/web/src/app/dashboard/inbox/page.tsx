@@ -45,6 +45,16 @@ function connectionLabel(state: string): string {
   return labels[state] ?? "Tidak diketahui";
 }
 
+function ingestStatusLabel(status: "accepted" | "duplicate" | "ignored" | "none"): string {
+  const labels = {
+    accepted: "Diterima",
+    duplicate: "Duplikat diabaikan",
+    ignored: "Diabaikan sesuai kebijakan",
+    none: "Belum ada",
+  } as const;
+  return labels[status];
+}
+
 function ConversationPanel({ conversation }: { conversation: ConversationDetailDto | null }) {
   if (!conversation) {
     return (
@@ -134,7 +144,7 @@ export default async function InboxPage({
   const workspace = { workspaceId: session.workspaceId };
 
   try {
-    const [list, detail, gatewayStatus] = await Promise.all([
+    const [list, detail, gatewayStatus, diagnostics] = await Promise.all([
       repository.listConversations(workspace, { cursor: query.cursor }),
       query.conversation
         ? repository.getConversation(workspace, query.conversation, {
@@ -144,6 +154,7 @@ export default async function InboxPage({
       getWhatsAppRouteDependencies()
         .gateway.getStatus()
         .catch(() => null),
+      session.role === "owner" ? repository.getDiagnostics(workspace) : Promise.resolve(null),
     ]);
     await repository.recordInboxViewed(workspace, session.userId);
 
@@ -168,6 +179,41 @@ export default async function InboxPage({
             </div>
           </div>
         </header>
+
+        {session.role === "owner" && diagnostics ? (
+          <section className="inbox-diagnostics" aria-label="Diagnostik ingestion WhatsApp">
+            <div>
+              <small>Status akun</small>
+              <strong>
+                {gatewayStatus?.binding.state === "bound" ? "Terikat" : "Belum terikat"}
+              </strong>
+            </div>
+            <div>
+              <small>Total percakapan</small>
+              <strong>{diagnostics.totalConversations}</strong>
+            </div>
+            <div>
+              <small>Event terakhir diterima</small>
+              <strong>
+                {diagnostics.lastReceivedAt ? formatTime(diagnostics.lastReceivedAt) : "Belum ada"}
+              </strong>
+            </div>
+            <div>
+              <small>Status ingestion terakhir</small>
+              <strong>{ingestStatusLabel(diagnostics.lastIngestStatus)}</strong>
+            </div>
+            <Link
+              className="text-link inbox-refresh"
+              href={
+                query.conversation
+                  ? `/dashboard/inbox?conversation=${query.conversation}`
+                  : "/dashboard/inbox"
+              }
+            >
+              Muat ulang
+            </Link>
+          </section>
+        ) : null}
 
         <div className="inbox-layout">
           <aside className="conversation-list" aria-label="Daftar percakapan">

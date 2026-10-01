@@ -61,8 +61,12 @@ export async function handleWhatsAppStatus(
   request: Request,
   dependencies: WhatsAppRouteDependencies,
 ): Promise<Response> {
-  if (!(await dependencies.getSession())) {
+  const session = await dependencies.getSession();
+  if (!session) {
     return json({ error: { code: "UNAUTHORIZED", message: "Sesi owner diperlukan." } }, 401);
+  }
+  if (session.role !== "owner") {
+    return json({ error: { code: "FORBIDDEN", message: "Akses owner diperlukan." } }, 403);
   }
   if (!hasEmptyQuery(request)) {
     return json({ error: { code: "INVALID_REQUEST", message: "Permintaan tidak valid." } }, 400);
@@ -79,8 +83,12 @@ export async function handleWhatsAppQr(
   request: Request,
   dependencies: WhatsAppRouteDependencies,
 ): Promise<Response> {
-  if (!(await dependencies.getSession())) {
+  const session = await dependencies.getSession();
+  if (!session) {
     return json({ error: { code: "UNAUTHORIZED", message: "Sesi owner diperlukan." } }, 401);
+  }
+  if (session.role !== "owner") {
+    return json({ error: { code: "FORBIDDEN", message: "Akses owner diperlukan." } }, 403);
   }
   if (!hasEmptyQuery(request)) {
     return json({ error: { code: "INVALID_REQUEST", message: "Permintaan tidak valid." } }, 400);
@@ -104,6 +112,9 @@ export async function handleWhatsAppMutation(
   const session = await dependencies.getSession();
   if (!session) {
     return json({ error: { code: "UNAUTHORIZED", message: "Sesi owner diperlukan." } }, 401);
+  }
+  if (session.role !== "owner") {
+    return json({ error: { code: "FORBIDDEN", message: "Akses owner diperlukan." } }, 403);
   }
 
   try {

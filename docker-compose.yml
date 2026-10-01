@@ -132,23 +132,25 @@ services:
 
   migrate:
     profiles: ["tools"]
+    image: sakani-closer-database-tools:${SAKANI_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-      target: builder
+      target: database-tools
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-sakani}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sakani_closer}
-    command: ["pnpm", "db:migrate"]
+    command: ["sh", "-lc", "pnpm db:assert-migrations && pnpm db:migrate && pnpm db:verify-schema"]
     depends_on:
       postgres:
         condition: service_healthy
 
   seed:
     profiles: ["tools"]
+    image: sakani-closer-database-tools:${SAKANI_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-      target: builder
+      target: database-tools
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-sakani}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sakani_closer}
     command: ["pnpm", "db:seed"]

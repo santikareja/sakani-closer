@@ -10,10 +10,15 @@ import {
   waAccounts,
   type WorkspaceContext,
 } from "@sakani/database";
-import { and, desc, eq, lt, or } from "drizzle-orm";
+import { and, count, desc, eq, inArray, lt, or } from "drizzle-orm";
 
 import { decodeInboxCursor, encodeInboxCursor } from "./cursor";
-import type { ConversationDetailDto, ConversationListDto, MessageDto } from "./types";
+import type {
+  ConversationDetailDto,
+  ConversationListDto,
+  InboxDiagnosticsDto,
+  MessageDto,
+} from "./types";
 
 const DEFAULT_PAGE_SIZE = 25;
 
@@ -29,6 +34,7 @@ export interface InboxRepository {
     conversationId: string,
     query?: InboxQuery,
   ): Promise<ConversationDetailDto | null>;
+  getDiagnostics(context: WorkspaceContext): Promise<InboxDiagnosticsDto>;
   recordInboxViewed(context: WorkspaceContext, actorUserId: string): Promise<void>;
 }
 
@@ -48,11 +54,58 @@ function safeMessageType(value: string): "text" | "image" | "document" {
 }
 
 export class DrizzleInboxRepository implements InboxRepository {
+  constructor(private readonly database: ReturnType<typeof getDatabase> = getDatabase()) {}
+
+  async getDiagnostics(context: WorkspaceContext): Promise<InboxDiagnosticsDto> {
+    const database = this.database;
+    const [[conversationCount], [latestMessage], [latestIngest]] = await Promise.all([
+      database
+        .select({ value: count() })
+        .from(conversations)
+        .where(eq(conversations.workspaceId, context.workspaceId)),
+      database
+        .select({ receivedAt: messages.createdAt })
+        .from(messages)
+        .where(eq(messages.workspaceId, context.workspaceId))
+        .orderBy(desc(messages.createdAt))
+        .limit(1),
+      database
+        .select({ action: auditLogs.action })
+        .from(auditLogs)
+        .where(
+          and(
+            eq(auditLogs.workspaceId, context.workspaceId),
+            inArray(auditLogs.action, [
+              "message_received",
+              "duplicate_message_ignored",
+              "message_ignored",
+            ]),
+          ),
+        )
+        .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id))
+        .limit(1),
+    ]);
+    const statuses = {
+      message_received: "accepted",
+      duplicate_message_ignored: "duplicate",
+      message_ignored: "ignored",
+    } as const;
+    const lastIngestStatus = latestIngest?.action
+      ? (statuses[latestIngest.action as keyof typeof statuses] ?? "none")
+      : "none";
+
+    return {
+      totalConversations: conversationCount?.value ?? 0,
+      ...(latestMessage ? { lastReceivedAt: latestMessage.receivedAt.toISOString() } : {}),
+      lastIngestStatus,
+    };
+  }
+
   async listConversations(
     context: WorkspaceContext,
     query: InboxQuery = {},
   ): Promise<ConversationListDto> {
-    const database = getDatabase();
+    const database = this.database;
     const limit = pageSize(query.limit);
     const cursor = decodeInboxCursor(query.cursor);
     const cursorPredicate = cursor
@@ -129,7 +182,7 @@ export class DrizzleInboxRepository implements InboxRepository {
     conversationId: string,
     query: InboxQuery = {},
   ): Promise<ConversationDetailDto | null> {
-    const database = getDatabase();
+    const database = this.database;
     const [conversation] = await database
       .select({
         id: conversations.id,
@@ -229,7 +282,7 @@ export class DrizzleInboxRepository implements InboxRepository {
   }
 
   async recordInboxViewed(context: WorkspaceContext, actorUserId: string): Promise<void> {
-    await getDatabase().insert(auditLogs).values({
+    await this.database.insert(auditLogs).values({
       workspaceId: context.workspaceId,
       actorUserId,
       action: "inbox_viewed",

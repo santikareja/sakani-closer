@@ -11,6 +11,7 @@ import {
   type WorkspaceContext,
 } from "@sakani/database";
 import type { AcceptedInboundMessage, IgnoredInboundMessage } from "@sakani/shared";
+import { DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID } from "@sakani/shared";
 import { and, eq, sql } from "drizzle-orm";
 
 import { InboundAccountNotFoundError, type InboundRepository } from "./inbound-types";
@@ -23,18 +24,26 @@ async function assertAccount(
   const [account] = await transaction
     .select({ id: waAccounts.id })
     .from(waAccounts)
-    .where(and(eq(waAccounts.workspaceId, context.workspaceId), eq(waAccounts.id, accountId)))
+    .where(
+      and(
+        eq(waAccounts.workspaceId, context.workspaceId),
+        eq(waAccounts.id, accountId),
+        eq(waAccounts.gatewayAccountId, DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID),
+      ),
+    )
     .limit(1);
   if (!account) throw new InboundAccountNotFoundError();
 }
 
 export class DrizzleInboundRepository implements InboundRepository {
+  constructor(private readonly database: ReturnType<typeof getDatabase> = getDatabase()) {}
+
   async ensureAccount(context: WorkspaceContext): Promise<{ id: string }> {
-    const [account] = await getDatabase()
+    const [account] = await this.database
       .insert(waAccounts)
       .values({
         workspaceId: context.workspaceId,
-        gatewayAccountId: "default",
+        gatewayAccountId: DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID,
         label: "WhatsApp utama",
       })
       .onConflictDoUpdate({
@@ -51,7 +60,7 @@ export class DrizzleInboundRepository implements InboundRepository {
     accountId: string,
     message: AcceptedInboundMessage,
   ): Promise<"created" | "duplicate"> {
-    return getDatabase().transaction(async (transaction) => {
+    return this.database.transaction(async (transaction) => {
       await assertAccount(transaction, context, accountId);
       const now = new Date();
       const providerTimestamp = new Date(message.providerTimestamp);
@@ -215,7 +224,7 @@ export class DrizzleInboundRepository implements InboundRepository {
     accountId: string,
     message: IgnoredInboundMessage,
   ): Promise<void> {
-    await getDatabase().transaction(async (transaction) => {
+    await this.database.transaction(async (transaction) => {
       await assertAccount(transaction, context, accountId);
       const now = new Date();
       await transaction.insert(auditLogs).values({

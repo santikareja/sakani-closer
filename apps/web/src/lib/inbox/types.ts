@@ -14,6 +14,12 @@ export interface ConversationListDto {
   nextCursor?: string;
 }
 
+export interface InboxDiagnosticsDto {
+  totalConversations: number;
+  lastReceivedAt?: string;
+  lastIngestStatus: "accepted" | "duplicate" | "ignored" | "none";
+}
+
 export interface MessageDto {
   id: string;
   direction: "inbound" | "outbound";

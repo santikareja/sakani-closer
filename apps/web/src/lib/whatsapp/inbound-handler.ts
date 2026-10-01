@@ -25,6 +25,10 @@ function json(payload: unknown, status: number): Response {
   });
 }
 
+function rejected(code: string, message: string, status: number): Response {
+  return json({ status: "rejected", error: { code, message } }, status);
+}
+
 export interface InboundHandlerDependencies {
   internalServiceToken: string;
   repository: InboundRepository;
@@ -39,26 +43,17 @@ export async function handleWhatsAppInboundEvent(
   dependencies: InboundHandlerDependencies,
 ): Promise<Response> {
   if (!hasValidToken(request, dependencies.internalServiceToken)) {
-    return json(
-      { error: { code: "UNAUTHORIZED", message: "Token layanan internal tidak valid." } },
-      401,
-    );
+    return rejected("UNAUTHORIZED", "Token layanan internal tidak valid.", 401);
   }
 
   let parsed: ReturnType<typeof whatsappInboundEventSchema.safeParse>;
   try {
     parsed = whatsappInboundEventSchema.safeParse(await request.json());
   } catch {
-    return json(
-      { error: { code: "INVALID_REQUEST", message: "Payload inbound tidak valid." } },
-      400,
-    );
+    return rejected("INVALID_REQUEST", "Payload inbound tidak valid.", 400);
   }
   if (!parsed.success) {
-    return json(
-      { error: { code: "INVALID_REQUEST", message: "Payload inbound tidak valid." } },
-      400,
-    );
+    return rejected("INVALID_REQUEST", "Payload inbound tidak valid.", 400);
   }
 
   const { binding, message } = parsed.data;
@@ -96,13 +91,13 @@ export async function handleWhatsAppInboundEvent(
         ? "Pesan WhatsApp inbound disimpan"
         : "Pesan WhatsApp duplikat diabaikan",
     );
-    return json({ status: result }, result === "created" ? 202 : 200);
+    return json(
+      { status: result === "created" ? "accepted" : "duplicate" },
+      result === "created" ? 202 : 200,
+    );
   } catch (error) {
     if (error instanceof InboundAccountNotFoundError) {
-      return json(
-        { error: { code: "ACCOUNT_BINDING_NOT_FOUND", message: "Binding akun tidak valid." } },
-        404,
-      );
+      return rejected("ACCOUNT_BINDING_NOT_FOUND", "Binding akun tidak valid.", 404);
     }
     dependencies.logger.error(
       {
@@ -113,9 +108,6 @@ export async function handleWhatsAppInboundEvent(
       },
       "Pesan WhatsApp inbound gagal disimpan",
     );
-    return json(
-      { error: { code: "INTERNAL_ERROR", message: "Pesan inbound belum dapat disimpan." } },
-      500,
-    );
+    return rejected("INTERNAL_ERROR", "Pesan inbound belum dapat disimpan.", 500);
   }
 }

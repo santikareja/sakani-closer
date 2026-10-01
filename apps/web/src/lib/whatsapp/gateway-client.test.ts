@@ -15,6 +15,7 @@ describe("WhatsApp gateway server client", () => {
             reason: "service_started",
             updatedAt: "2026-10-01T00:00:00.000Z",
           },
+          binding: { state: "unbound" },
         });
       },
     );
@@ -40,6 +41,7 @@ describe("WhatsApp gateway server client", () => {
           reason: "connect_requested",
           updatedAt: "2026-10-01T00:00:00.000Z",
         },
+        binding: { state: "bound" },
       }),
     );
     const client = createWhatsAppGatewayClient(

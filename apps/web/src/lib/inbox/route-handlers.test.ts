@@ -65,6 +65,11 @@ function fakeRepository(): InboxRepository {
             }
           : null,
     ),
+    getDiagnostics: vi.fn(async () => ({
+      totalConversations: 1,
+      lastReceivedAt: "2026-10-02T00:00:00.000Z",
+      lastIngestStatus: "accepted" as const,
+    })),
     recordInboxViewed: vi.fn(async () => undefined),
   };
 }

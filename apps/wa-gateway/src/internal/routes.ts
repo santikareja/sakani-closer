@@ -48,6 +48,7 @@ export interface InternalRouteDependencies {
   internalServiceToken: string;
   logger: GatewayLogger;
   bindAccount(binding: WhatsAppAccountBinding): Promise<void>;
+  getBindingState(): "bound" | "unbound";
 }
 
 function sendJson(response: ServerResponse, statusCode: number, payload: unknown): void {
@@ -100,7 +101,10 @@ export function createInternalRequestHandler(dependencies: InternalRouteDependen
 
         if (request.method === "GET" && url.pathname === "/internal/status") {
           parseQuery(url);
-          sendJson(response, 200, { connection: dependencies.manager.getStatus() });
+          sendJson(response, 200, {
+            connection: dependencies.manager.getStatus(),
+            binding: { state: dependencies.getBindingState() },
+          });
           return;
         }
 
@@ -114,14 +118,20 @@ export function createInternalRequestHandler(dependencies: InternalRouteDependen
           const binding = accountBindingSchema.parse(await parseJsonBody(request));
           await dependencies.bindAccount(binding);
           const connection = await dependencies.manager.connect();
-          sendJson(response, 202, { connection });
+          sendJson(response, 202, {
+            connection,
+            binding: { state: dependencies.getBindingState() },
+          });
           return;
         }
 
         if (request.method === "POST" && url.pathname === "/internal/disconnect") {
           emptyBodySchema.parse(await parseJsonBody(request));
           const connection = await dependencies.manager.disconnect();
-          sendJson(response, 200, { connection });
+          sendJson(response, 200, {
+            connection,
+            binding: { state: dependencies.getBindingState() },
+          });
           return;
         }
 

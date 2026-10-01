@@ -35,6 +35,7 @@ describe("WhatsApp gateway internal routes", () => {
   let manager: ConnectionManager;
   let server: ReturnType<typeof createGatewayServer>;
   let baseUrl: string;
+  let bindingState: "bound" | "unbound";
 
   beforeEach(async () => {
     now = Date.parse("2026-10-01T00:00:00.000Z");
@@ -45,12 +46,16 @@ describe("WhatsApp gateway internal routes", () => {
       qrManager,
       testLogger(),
     );
+    bindingState = "unbound";
     server = createGatewayServer({
       manager,
       qrManager,
       internalServiceToken: token,
       logger: testLogger(),
-      bindAccount: async () => undefined,
+      bindAccount: async () => {
+        bindingState = "bound";
+      },
+      getBindingState: () => bindingState,
     });
     await listen(server, 0);
     const address = server.address() as AddressInfo;
@@ -92,6 +97,7 @@ describe("WhatsApp gateway internal routes", () => {
 
     expect(response.status).toBe(200);
     expect(serialized).toContain("disconnected");
+    expect(serialized).toContain('"binding":{"state":"unbound"}');
     expect(serialized).not.toContain("credentials");
     expect(serialized).not.toContain(token);
   });
@@ -130,6 +136,7 @@ describe("WhatsApp gateway internal routes", () => {
     }
 
     expect(statuses).toEqual([202, 202, 202, 202, 202, 429]);
+    expect(bindingState).toBe("bound");
   });
 
   it("returns sanitized validation errors without echoing submitted secrets", async () => {

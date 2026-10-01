@@ -17,10 +17,13 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:database-integration": "vitest run packages/database/src/migration-postgres.integration.test.ts",
     "db:generate": "pnpm --filter @sakani/database db:generate",
     "db:migrate": "pnpm --filter @sakani/database db:migrate",
     "db:seed": "pnpm --filter @sakani/database db:seed",
-    "docker:check": "docker compose config --quiet"
+    "db:verify-schema": "pnpm --filter @sakani/database db:verify-schema",
+    "docker:check": "docker compose config --quiet",
+    "docker:verify-migrations": "docker compose --profile tools build migrate && docker compose --profile tools run --rm --no-deps migrate pnpm db:assert-migrations"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

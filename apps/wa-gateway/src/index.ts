@@ -1,6 +1,7 @@
 import { pathToFileURL } from "node:url";
 
 import { createLogger } from "@sakani/logger";
+import { DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID } from "@sakani/shared";
 import { ZodError } from "zod";
 
 import {
@@ -145,7 +146,12 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<G
     DEFAULT_MAX_RETRY_ATTEMPTS,
     {
       setAutoReconnect: (enabled, reason) =>
-        writeBaileysAutoReconnectIntent(authStore, enabled, "default", reason),
+        writeBaileysAutoReconnectIntent(
+          authStore,
+          enabled,
+          DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID,
+          reason,
+        ),
     },
   );
   const server = createGatewayServer({
@@ -154,6 +160,7 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<G
     internalServiceToken: config.internalServiceToken,
     logger,
     bindAccount: (binding) => accountBindings.set(binding),
+    getBindingState: () => (accountBindings.get() ? "bound" : "unbound"),
   });
 
   await listen(server, config.port);

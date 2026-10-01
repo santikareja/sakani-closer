@@ -1,8 +1,9 @@
 import type { WorkspaceContext } from "@sakani/database";
-import type {
-  AcceptedInboundMessage,
-  IgnoredInboundMessage,
-  WhatsAppInboundEvent,
+import {
+  DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID,
+  type AcceptedInboundMessage,
+  type IgnoredInboundMessage,
+  type WhatsAppInboundEvent,
 } from "@sakani/shared";
 import { describe, expect, it, vi } from "vitest";
 
@@ -30,14 +31,18 @@ const accepted: AcceptedInboundMessage = {
 };
 
 class InMemoryInboundRepository implements InboundRepository {
-  readonly accounts = new Set<string>();
+  readonly accounts = new Map<string, string>();
   readonly contacts = new Set<string>();
   readonly conversations = new Set<string>();
   readonly messages = new Set<string>();
   readonly ignored: IgnoredInboundMessage[] = [];
 
-  addAccount(workspace: string, account: string): void {
-    this.accounts.add(`${workspace}:${account}`);
+  addAccount(
+    workspace: string,
+    account: string,
+    gatewayAccountId = DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID,
+  ): void {
+    this.accounts.set(`${workspace}:${account}`, gatewayAccountId);
   }
 
   async ensureAccount(context: WorkspaceContext): Promise<{ id: string }> {
@@ -50,7 +55,9 @@ class InMemoryInboundRepository implements InboundRepository {
     account: string,
     message: AcceptedInboundMessage,
   ): Promise<"created" | "duplicate"> {
-    if (!this.accounts.has(`${context.workspaceId}:${account}`)) {
+    if (
+      this.accounts.get(`${context.workspaceId}:${account}`) !== DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID
+    ) {
       throw new InboundAccountNotFoundError();
     }
     const key = `${context.workspaceId}:${account}:${message.providerMessageId}`;
@@ -66,7 +73,9 @@ class InMemoryInboundRepository implements InboundRepository {
     account: string,
     message: IgnoredInboundMessage,
   ): Promise<void> {
-    if (!this.accounts.has(`${context.workspaceId}:${account}`)) {
+    if (
+      this.accounts.get(`${context.workspaceId}:${account}`) !== DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID
+    ) {
       throw new InboundAccountNotFoundError();
     }
     this.ignored.push(message);
@@ -146,6 +155,32 @@ describe("receive-only WhatsApp ingestion boundary", () => {
     expect(repository.messages.size).toBe(0);
   });
 
+  it("rejects an account ID that does not belong to the bound workspace", async () => {
+    const { dependencies, repository } = setup();
+    const mismatched = event();
+    mismatched.binding.accountId = "00000000-0000-4000-8000-000000000099";
+
+    const response = await handleWhatsAppInboundEvent(request(mismatched), dependencies);
+    expect(response.status).toBe(404);
+    expect(await response.json()).toMatchObject({
+      status: "rejected",
+      error: { code: "ACCOUNT_BINDING_NOT_FOUND" },
+    });
+    expect(repository.messages.size).toBe(0);
+  });
+
+  it("rejects a non-default gateway account in the same workspace", async () => {
+    const { dependencies, repository } = setup();
+    const secondaryAccountId = "00000000-0000-4000-8000-000000000098";
+    repository.addAccount(workspaceId, secondaryAccountId, "secondary");
+    const mismatched = event();
+    mismatched.binding.accountId = secondaryAccountId;
+
+    const response = await handleWhatsAppInboundEvent(request(mismatched), dependencies);
+    expect(response.status).toBe(404);
+    expect(repository.messages.size).toBe(0);
+  });
+
   it("rejects unauthorized internal ingestion before persistence", async () => {
     const { dependencies, repository } = setup();
     const response = await handleWhatsAppInboundEvent(
@@ -153,6 +188,7 @@ describe("receive-only WhatsApp ingestion boundary", () => {
       dependencies,
     );
     expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ status: "rejected" });
     expect(repository.messages.size).toBe(0);
   });
 
@@ -187,7 +223,7 @@ describe("receive-only WhatsApp ingestion boundary", () => {
     const body = JSON.stringify(await response.json());
     const logs = output.join("\n");
 
-    expect(body).toBe('{"status":"created"}');
+    expect(body).toBe('{"status":"accepted"}');
     expect(body).not.toContain("remoteJid");
     expect(logs).not.toContain(fullText);
     expect(logs).not.toContain("628123456789@s.whatsapp.net");

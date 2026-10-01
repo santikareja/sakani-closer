@@ -555,6 +555,47 @@ h2 {
   box-shadow: 0 1.2rem 3rem rgba(24, 35, 29, 0.06);
 }
 
+.inbox-diagnostics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.inbox-diagnostics div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.inbox-diagnostics small {
+  color: var(--muted);
+}
+
+.inbox-diagnostics strong {
+  font-size: 0.9rem;
+}
+
+.inbox-refresh {
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .inbox-diagnostics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .inbox-diagnostics {
+    grid-template-columns: 1fr;
+  }
+}
+
 .conversation-list {
   border-right: 1px solid var(--line);
 }

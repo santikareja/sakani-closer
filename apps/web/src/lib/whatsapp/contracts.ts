@@ -38,6 +38,7 @@ export const connectionStatusSchema = z.object({
 
 export const gatewayStatusResponseSchema = z.object({
   connection: connectionStatusSchema,
+  binding: z.object({ state: z.enum(["bound", "unbound"]) }),
 });
 
 export const gatewayQrResponseSchema = z.object({

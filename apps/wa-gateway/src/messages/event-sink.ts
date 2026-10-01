@@ -56,8 +56,48 @@ export class HttpInboundEventSink implements InboundEventSink {
           body: JSON.stringify(payload),
           signal: AbortSignal.timeout(5_000),
         });
-        if (response.ok || response.status === 409) return;
-        if (response.status >= 400 && response.status < 500) break;
+        if (response.ok || response.status === 409) {
+          let ingestStatus: "accepted" | "duplicate" | "ignored" =
+            response.status === 409
+              ? "duplicate"
+              : payload.message.outcome === "ignored"
+                ? "ignored"
+                : "accepted";
+          try {
+            const responseBody = (await response.json()) as { status?: unknown };
+            if (
+              responseBody.status === "accepted" ||
+              responseBody.status === "duplicate" ||
+              responseBody.status === "ignored"
+            ) {
+              ingestStatus = responseBody.status;
+            }
+          } catch {
+            // The response body is optional and never included in logs.
+          }
+          this.logger.info(
+            {
+              event: "wa.message.ingest_delivered",
+              ingestStatus,
+              httpStatus: response.status,
+              providerMessageIdHash: payload.message.providerMessageIdHash,
+            },
+            "Event WhatsApp diterima penyimpanan internal",
+          );
+          return;
+        }
+        if (response.status >= 400 && response.status < 500) {
+          this.logger.warn(
+            {
+              event: "wa.message.ingest_rejected",
+              ingestStatus: "rejected",
+              httpStatus: response.status,
+              providerMessageIdHash: payload.message.providerMessageIdHash,
+            },
+            "Event WhatsApp ditolak penyimpanan internal",
+          );
+          return;
+        }
       } catch {
         // Retry below without logging response bodies or raw message content.
       }
@@ -69,6 +109,7 @@ export class HttpInboundEventSink implements InboundEventSink {
     this.logger.error(
       {
         event: "wa.message.ingest_failed",
+        ingestStatus: "rejected",
         outcome: payload.message.outcome,
         providerMessageIdHash: payload.message.providerMessageIdHash,
       },

@@ -9,6 +9,14 @@ COPY . .
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @sakani/web build
 
+FROM builder AS database-tools
+
+WORKDIR /app/packages/database
+
+# Fail the image build if the committed Drizzle artifacts were omitted from
+# the build context or if the journal and SQL files no longer agree.
+RUN pnpm db:assert-migrations
+
 FROM node:24-bookworm-slim AS runner
 
 ENV NODE_ENV=production

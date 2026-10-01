@@ -124,9 +124,18 @@ pnpm db:seed
 Or run them inside the Compose network, which is the recommended VM path:
 
 ```bash
+pnpm docker:verify-migrations
 docker compose --profile tools run --rm migrate
 docker compose --profile tools run --rm seed
 ```
+
+The migration tools image has its own Compose image and must be rebuilt after pulling a revision
+that contains new migrations. `pnpm docker:verify-migrations` builds that image, opens a container,
+and confirms that every SQL file referenced by the committed Drizzle journal is present. The
+default `migrate` command repeats that artifact check, runs `drizzle-kit migrate` from
+`/app/packages/database`, and then runs `db:verify-schema`. The verifier fails safely when the
+Drizzle journal or any of `wa_accounts`, `contacts`, `conversations`, `messages`, and
+`message_media` is absent; it never prints `DATABASE_URL`.
 
 The seed is repeatable. It upserts the `sakani` workspace and these ordered stages: Baru, Terkualifikasi, Survei, Sudah Survei, Booking, Akad, Closing, and Lost.
 
@@ -247,6 +256,12 @@ Rollback by stopping only `web` and `wa-gateway`, deploying the pre-Phase-2B app
 
 ## Batch 1 deployment and rollback
 
-Create a protected PostgreSQL backup, review `0002_productive_kinsey_walden.sql`, and run the committed migration with the tools profile. Rebuild `web` and `wa-gateway`, start both services, sign in, and press **Hubungkan** once to persist the workspace/account binding for an existing Phase 2B session. Send one direct test message, confirm exactly one inbox row, and confirm the WhatsApp test number sends no reply.
+Create a protected PostgreSQL backup and review `0002_productive_kinsey_walden.sql` without editing it. Run `pnpm docker:verify-migrations`, then run `docker compose --profile tools run --rm migrate`; this rebuilds/checks the dedicated tools image before the runtime migration and fails if the required inbox tables are still absent. Rebuild `web` and `wa-gateway`, start both services, sign in, and press **Hubungkan** once to upsert the default workspace account and persist its encrypted binding for an existing Phase 2B session. Send one direct test message, confirm exactly one inbox row, and confirm the WhatsApp test number sends no reply.
+
+The Azure Batch 1 incident was caused by a stale Compose image for the separate `migrate` service:
+`web` and `wa-gateway` were rebuilt, but `docker compose run migrate` reused an older tools image
+that did not contain migration `0002`. The host checkout was correct; the running migration image
+was not. Do not repair this state by resetting the database, deleting a volume, or editing
+`drizzle.__drizzle_migrations`.
 
 For application rollback, deploy the previous revision and rebuild only `web` and `wa-gateway`. The Batch 1 migration is additive, so its empty or retained tables can remain for the old application. Restore the database backup only when explicitly required; never remove `postgres_data` or `wa_auth_data`, and never use `docker compose down -v`.

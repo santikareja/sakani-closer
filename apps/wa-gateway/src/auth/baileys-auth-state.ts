@@ -7,6 +7,7 @@ import {
   type SignalDataSet,
   type SignalDataTypeMap,
 } from "@whiskeysockets/baileys";
+import { DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID } from "@sakani/shared";
 import { z } from "zod";
 
 import type { AuthStore } from "./store.js";
@@ -122,7 +123,7 @@ export function classifyBaileysAuthState(
 
 export async function hasRegisteredBaileysSession(
   store: AuthStore,
-  accountId = "default",
+  accountId = DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID,
 ): Promise<boolean> {
   return (await inspectBaileysAuthState(store, accountId)).classification === "registered";
 }
@@ -134,7 +135,7 @@ const connectionIntentSchema = z.object({
 
 export async function inspectBaileysAuthState(
   store: AuthStore,
-  accountId = "default",
+  accountId = DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID,
 ): Promise<BaileysAuthStateInspection> {
   let credentials: unknown;
   let storedIntent: unknown;
@@ -203,7 +204,7 @@ export async function inspectBaileysAuthState(
 
 export async function readBaileysAutoReconnectIntent(
   store: AuthStore,
-  accountId = "default",
+  accountId = DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID,
 ): Promise<boolean | undefined> {
   const stored = await store.read<unknown>(connectionIntentKey(accountId));
   if (stored === undefined) return undefined;
@@ -213,7 +214,7 @@ export async function readBaileysAutoReconnectIntent(
 export async function writeBaileysAutoReconnectIntent(
   store: AuthStore,
   autoReconnect: boolean,
-  accountId = "default",
+  accountId = DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID,
   reason: ReconnectPolicyReason = autoReconnect ? "active" : "explicit_disconnect",
 ): Promise<void> {
   await store.write(connectionIntentKey(accountId), { autoReconnect, reason });
@@ -221,7 +222,7 @@ export async function writeBaileysAutoReconnectIntent(
 
 export async function createBaileysAuthState(
   store: AuthStore,
-  accountId = "default",
+  accountId = DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID,
 ): Promise<{
   state: AuthenticationState;
   saveCreds: () => Promise<void>;
@@ -282,7 +283,7 @@ export async function createBaileysAuthState(
 
 export async function clearBaileysAuthState(
   store: AuthStore,
-  accountId = "default",
+  accountId = DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID,
 ): Promise<void> {
   const prefix = accountPrefix(accountId);
   const keys = await store.list(`${prefix}:`);

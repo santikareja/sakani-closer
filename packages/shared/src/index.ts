@@ -1,5 +1,6 @@
 export const APP_NAME = "Sakani Closer";
 export const DEFAULT_TIMEZONE = "Asia/Jakarta";
+export const DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID = "default";
 
 export type Result<T, E = AppError> = { ok: true; value: T } | { ok: false; error: E };
 
