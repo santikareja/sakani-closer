@@ -50,6 +50,22 @@ describe("service-specific environment validation", () => {
     expect(env).not.toHaveProperty("DATABASE_URL");
     expect(env).not.toHaveProperty("REDIS_URL");
     expect(env).not.toHaveProperty("AUTH_SECRET");
+    expect(Object.keys(env).sort()).toEqual(
+      [
+        "NODE_ENV",
+        "WA_GATEWAY_PORT",
+        "WA_AUTH_DATA_DIR",
+        "WA_LOG_LEVEL",
+        "SESSION_ENCRYPTION_KEY",
+        "INTERNAL_SERVICE_TOKEN",
+      ].sort(),
+    );
+  });
+
+  it("accepts a 64-character gateway encryption secret", () => {
+    expect(() =>
+      parseGatewayEnv({ ...validGatewayEnv, SESSION_ENCRYPTION_KEY: "a".repeat(64) }),
+    ).not.toThrow();
   });
 
   it("rejects weak gateway secrets and invalid ports", () => {

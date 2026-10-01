@@ -16,5 +16,7 @@ describe("WhatsApp gateway Compose boundary", () => {
     expect(gatewayBlock).not.toMatch(/depends_on:/);
     expect(gatewayBlock).not.toContain("DATABASE_URL");
     expect(gatewayBlock).not.toContain("REDIS_URL");
+    expect(gatewayBlock).not.toContain("APP_URL");
+    expect(gatewayBlock).not.toContain("AUTH_SECRET");
   });
 });

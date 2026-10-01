@@ -37,12 +37,7 @@ export const gatewayEnvSchema = z.object({
   WA_GATEWAY_PORT: z.coerce.number().int().min(1).max(65_535).default(3_001),
   WA_AUTH_DATA_DIR: z.string().trim().min(1).default("./wa-auth"),
   WA_LOG_LEVEL: runtimeModeShape.LOG_LEVEL,
-  SESSION_ENCRYPTION_KEY: z
-    .string()
-    .regex(
-      /^[A-Za-z0-9_-]{43}$/,
-      "SESSION_ENCRYPTION_KEY must be a 32-byte base64url value without padding",
-    ),
+  SESSION_ENCRYPTION_KEY: z.string().min(32).max(1_024),
   INTERNAL_SERVICE_TOKEN: z.string().min(32),
 });
 

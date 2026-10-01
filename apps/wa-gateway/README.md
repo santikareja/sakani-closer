@@ -16,7 +16,7 @@ States are `disconnected`, `connecting`, `qr_ready`, `connected`, `logged_out`, 
 
 ## Authentication persistence
 
-The `AuthStore` abstraction provides `read`, `write`, `delete`, and `list`. The current file adapter hashes logical keys for filenames, serializes Baileys buffers safely, and encrypts the logical key plus value using AES-256-GCM with a unique 96-bit IV for every write. It uses authenticated tags and atomic rename; tampering or a wrong key is rejected.
+The `AuthStore` abstraction provides `read`, `write`, `delete`, and `list`. The current file adapter hashes logical keys for filenames, serializes Baileys buffers safely, and encrypts the logical key plus value using AES-256-GCM with a unique 96-bit IV for every write. A 32-byte base64url key and a 64-character hexadecimal key are decoded directly; other high-entropy secrets are domain-separated and normalized with SHA-256. It uses authenticated tags and atomic rename; tampering or a wrong key is rejected.
 
 The adapter is suitable for the private Phase 2A single-instance volume, but it is not production-ready for horizontal replicas, remote KMS/HSM key custody, distributed locking, or automated encrypted backups.
 
@@ -36,7 +36,7 @@ Every `/internal/*` request requires `Authorization: Bearer <INTERNAL_SERVICE_TO
 - `WA_AUTH_DATA_DIR` — defaults to `./wa-auth`; Compose uses `/var/lib/sakani-wa`.
 - `WA_LOG_LEVEL` — defaults to `info`.
 - `INTERNAL_SERVICE_TOKEN` — required, at least 32 characters, no default.
-- `SESSION_ENCRYPTION_KEY` — required, exactly 32 bytes encoded as 43-character unpadded base64url, no default.
+- `SESSION_ENCRYPTION_KEY` — required, 32–1024 high-entropy characters, no default. The recommended value is 32 random bytes encoded as unpadded base64url.
 
 `WA_GATEWAY_URL` belongs to trusted caller services, not to the gateway itself. The gateway has no database or Redis configuration.
 

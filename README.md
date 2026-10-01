@@ -61,7 +61,7 @@ pnpm install
 cp .env.example .env
 ```
 
-Edit `.env` before starting services. Replace the PostgreSQL password, Redis password, `AUTH_SECRET`, `INTERNAL_SERVICE_TOKEN`, and `SESSION_ENCRYPTION_KEY` placeholders with independent, high-entropy values. `AUTH_SECRET` and `INTERNAL_SERVICE_TOKEN` must contain at least 32 characters. `SESSION_ENCRYPTION_KEY` must be a 32-byte base64url value without padding; use the generator documented in `.env.example`. Never commit `.env`.
+Edit `.env` before starting services. Replace the PostgreSQL password, Redis password, `AUTH_SECRET`, `INTERNAL_SERVICE_TOKEN`, and `SESSION_ENCRYPTION_KEY` placeholders with independent, high-entropy values. Each application secret must contain at least 32 characters. The recommended 32-byte base64url generator is documented in `.env.example`; existing high-entropy 64-character secrets are also accepted and normalized to an AES-256 key. Never commit `.env`.
 
 Environment validation is service-specific: migration and seed commands require only `DATABASE_URL`; the web runtime additionally requires `APP_URL`, `REDIS_URL`, and `AUTH_SECRET`; the gateway requires only its port/log/path settings plus its encryption key and internal token. The worker contract remains separate. Database tools never validate web or gateway secrets.
 

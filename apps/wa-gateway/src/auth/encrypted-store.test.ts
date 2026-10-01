@@ -84,4 +84,9 @@ describe("EncryptedFileAuthStore", () => {
       "exactly 32 bytes",
     );
   });
+
+  it("normalizes 64-character secrets to an AES-256 key", () => {
+    expect(decodeSessionEncryptionKey("a".repeat(64))).toHaveLength(32);
+    expect(decodeSessionEncryptionKey("z".repeat(64))).toHaveLength(32);
+  });
 });

@@ -1,4 +1,4 @@
-import { getGatewayEnv } from "@sakani/config";
+import { getGatewayEnv, parseGatewayEnv } from "@sakani/config";
 
 export interface GatewayConfig {
   port: number;
@@ -8,8 +8,10 @@ export interface GatewayConfig {
   internalServiceToken: string;
 }
 
-export function loadGatewayConfig(): GatewayConfig {
-  const env = getGatewayEnv();
+export function loadGatewayConfig(
+  input?: NodeJS.ProcessEnv | Record<string, unknown>,
+): GatewayConfig {
+  const env = input ? parseGatewayEnv(input) : getGatewayEnv();
   return {
     port: env.WA_GATEWAY_PORT,
     authDataDirectory: env.WA_AUTH_DATA_DIR,

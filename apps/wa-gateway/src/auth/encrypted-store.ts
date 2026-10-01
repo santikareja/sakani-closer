@@ -36,15 +36,14 @@ export class AuthStoreIntegrityError extends Error {
 }
 
 export function decodeSessionEncryptionKey(value: string): Buffer {
-  if (!/^[A-Za-z0-9_-]{43}$/.test(value)) {
-    throw new TypeError("SESSION_ENCRYPTION_KEY must be a 32-byte base64url value without padding");
+  if (value.length < 32 || value.length > 1_024) {
+    throw new TypeError("SESSION_ENCRYPTION_KEY must contain between 32 and 1024 characters");
   }
 
-  const key = Buffer.from(value, "base64url");
-  if (key.length !== 32) {
-    throw new TypeError("SESSION_ENCRYPTION_KEY must decode to exactly 32 bytes");
-  }
-  return key;
+  if (/^[A-Za-z0-9_-]{43}$/.test(value)) return Buffer.from(value, "base64url");
+  if (/^[A-Fa-f0-9]{64}$/.test(value)) return Buffer.from(value, "hex");
+
+  return createHash("sha256").update("sakani-wa-auth-v1\0").update(value, "utf8").digest();
 }
 
 function isNodeError(error: unknown, code: string): boolean {
