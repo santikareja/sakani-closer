@@ -27,6 +27,23 @@ const registeredCredentialsSchema = z.object({
   registered: z.literal(true),
 });
 
+export const reconnectPolicyReasons = [
+  "active",
+  "explicit_disconnect",
+  "explicit_reset",
+  "logged_out",
+  "invalid_auth",
+] as const;
+
+export type ReconnectPolicyReason = (typeof reconnectPolicyReasons)[number];
+
+export interface BaileysAuthStateInspection {
+  authState: "absent" | "unregistered" | "present" | "invalid";
+  registered: boolean;
+  autoReconnect: boolean;
+  reason: ReconnectPolicyReason | "no_auth_state" | "unregistered_auth_state" | "legacy_disabled";
+}
+
 export async function hasRegisteredBaileysSession(
   store: AuthStore,
   accountId = "default",
@@ -37,7 +54,53 @@ export async function hasRegisteredBaileysSession(
 
 const connectionIntentSchema = z.object({
   autoReconnect: z.boolean(),
+  reason: z.enum(reconnectPolicyReasons).optional(),
 });
+
+export async function inspectBaileysAuthState(
+  store: AuthStore,
+  accountId = "default",
+): Promise<BaileysAuthStateInspection> {
+  const [credentials, storedIntent] = await Promise.all([
+    store.read<unknown>(credentialsKey(accountId)),
+    store.read<unknown>(connectionIntentKey(accountId)),
+  ]);
+  const parsedIntent =
+    storedIntent === undefined ? undefined : connectionIntentSchema.parse(storedIntent);
+
+  if (credentials === undefined) {
+    const reason = parsedIntent?.reason;
+    return {
+      authState: "absent",
+      registered: false,
+      autoReconnect: false,
+      reason: reason === "explicit_reset" || reason === "logged_out" ? reason : "no_auth_state",
+    };
+  }
+
+  const parsedCredentials = registeredCredentialsSchema.safeParse(credentials);
+  if (!parsedCredentials.success) {
+    const isUnregistered =
+      typeof credentials === "object" &&
+      credentials !== null &&
+      "registered" in credentials &&
+      credentials.registered === false;
+    return {
+      authState: isUnregistered ? "unregistered" : "invalid",
+      registered: false,
+      autoReconnect: false,
+      reason: isUnregistered ? "unregistered_auth_state" : "invalid_auth",
+    };
+  }
+
+  const autoReconnect = parsedIntent?.autoReconnect !== false;
+  return {
+    authState: "present",
+    registered: true,
+    autoReconnect,
+    reason: parsedIntent?.reason ?? (autoReconnect ? "active" : "legacy_disabled"),
+  };
+}
 
 export async function readBaileysAutoReconnectIntent(
   store: AuthStore,
@@ -52,8 +115,9 @@ export async function writeBaileysAutoReconnectIntent(
   store: AuthStore,
   autoReconnect: boolean,
   accountId = "default",
+  reason: ReconnectPolicyReason = autoReconnect ? "active" : "explicit_disconnect",
 ): Promise<void> {
-  await store.write(connectionIntentKey(accountId), { autoReconnect });
+  await store.write(connectionIntentKey(accountId), { autoReconnect, reason });
 }
 
 export async function createBaileysAuthState(
@@ -116,5 +180,6 @@ export async function clearBaileysAuthState(
 ): Promise<void> {
   const prefix = accountPrefix(accountId);
   const keys = await store.list(`${prefix}:`);
-  await Promise.all(keys.map((key) => store.delete(key)));
+  const intentKey = connectionIntentKey(accountId);
+  await Promise.all(keys.filter((key) => key !== intentKey).map((key) => store.delete(key)));
 }

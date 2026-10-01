@@ -40,10 +40,32 @@ export interface ConnectionStatus extends ConnectionSnapshot {
 
 export type DisconnectKind = "logged_out" | "auth_error" | "transient_error";
 
+export type NormalizedDisconnectReason =
+  | "logged_out"
+  | "bad_session"
+  | "connection_replaced"
+  | "multidevice_mismatch"
+  | "forbidden"
+  | "restart_required"
+  | "connection_lost"
+  | "timed_out"
+  | "connection_closed"
+  | "server_connection_close"
+  | "service_unavailable"
+  | "auth_persistence_failed"
+  | "unexpected_qr"
+  | "unknown_transient";
+
+export interface DisconnectDiagnostic {
+  kind: DisconnectKind;
+  reason: NormalizedDisconnectReason;
+  statusCode?: number;
+}
+
 export interface ConnectionCallbacks {
   onQr(qr: string): void;
   onOpen(phoneNumberMasked?: string): void;
-  onClose(kind: DisconnectKind): void;
+  onClose(diagnostic: DisconnectDiagnostic): void;
 }
 
 export interface GatewaySocket {
@@ -59,7 +81,10 @@ export interface GatewayConnector {
 }
 
 export interface ConnectionIntentStore {
-  setAutoReconnect(enabled: boolean): Promise<void>;
+  setAutoReconnect(
+    enabled: boolean,
+    reason: "active" | "explicit_disconnect" | "logged_out" | "invalid_auth",
+  ): Promise<void>;
 }
 
 export interface GatewayLogger {

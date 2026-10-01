@@ -1,4 +1,9 @@
-import { DisconnectReason } from "@whiskeysockets/baileys";
+import {
+  DEFAULT_CONNECTION_CONFIG,
+  DisconnectReason,
+  PROCESSABLE_HISTORY_TYPES,
+  proto,
+} from "@whiskeysockets/baileys";
 import { describe, expect, it, vi } from "vitest";
 
 import { BaileysConnector, classifyDisconnect, maskPhoneNumber } from "./baileys-connector.js";
@@ -11,11 +16,42 @@ function boomLike(statusCode: number) {
 
 describe("Baileys disconnect classification", () => {
   it("distinguishes logout, authentication failure, and transient errors", () => {
-    expect(classifyDisconnect(boomLike(DisconnectReason.loggedOut))).toBe("logged_out");
-    expect(classifyDisconnect(boomLike(DisconnectReason.badSession))).toBe("auth_error");
-    expect(classifyDisconnect(boomLike(DisconnectReason.forbidden))).toBe("auth_error");
-    expect(classifyDisconnect(boomLike(DisconnectReason.connectionLost))).toBe("transient_error");
-    expect(classifyDisconnect(new Error("network"))).toBe("transient_error");
+    expect(classifyDisconnect(boomLike(DisconnectReason.loggedOut))).toEqual({
+      kind: "logged_out",
+      reason: "logged_out",
+      statusCode: 401,
+    });
+    expect(classifyDisconnect(boomLike(DisconnectReason.badSession))).toMatchObject({
+      kind: "auth_error",
+      reason: "bad_session",
+    });
+    expect(classifyDisconnect(boomLike(DisconnectReason.connectionReplaced))).toMatchObject({
+      kind: "auth_error",
+      reason: "connection_replaced",
+    });
+    expect(classifyDisconnect(boomLike(DisconnectReason.forbidden))).toMatchObject({
+      kind: "auth_error",
+      reason: "forbidden",
+    });
+    expect(classifyDisconnect(boomLike(DisconnectReason.restartRequired))).toEqual({
+      kind: "transient_error",
+      reason: "restart_required",
+      statusCode: 515,
+    });
+    expect(
+      classifyDisconnect({
+        message: "Timed Out",
+        output: { statusCode: DisconnectReason.timedOut },
+      }),
+    ).toMatchObject({ kind: "transient_error", reason: "timed_out" });
+    expect(classifyDisconnect(boomLike(DisconnectReason.connectionLost))).toMatchObject({
+      kind: "transient_error",
+      reason: "connection_lost",
+    });
+    expect(classifyDisconnect(new Error("network"))).toEqual({
+      kind: "transient_error",
+      reason: "unknown_transient",
+    });
   });
 
   it("masks phone numbers without retaining the full value", () => {
@@ -120,8 +156,15 @@ describe("Baileys disconnect classification", () => {
       lastDisconnect: { error: boomLike(DisconnectReason.loggedOut) },
     });
 
-    await vi.waitFor(() => expect(onClose).toHaveBeenCalledWith("logged_out"));
-    expect(values.size).toBe(0);
+    await vi.waitFor(() =>
+      expect(onClose).toHaveBeenCalledWith({
+        kind: "logged_out",
+        reason: "logged_out",
+        statusCode: 401,
+      }),
+    );
+    expect(values.has("baileys:account:default:credentials")).toBe(false);
+    expect(values.has("baileys:account:default:key:session:one")).toBe(false);
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
@@ -161,8 +204,93 @@ describe("Baileys disconnect classification", () => {
     handlers.get("connection.update")!({ qr: "must-not-be-published" });
 
     expect(onQr).not.toHaveBeenCalled();
-    expect(onClose).toHaveBeenCalledWith("auth_error");
+    expect(onClose).toHaveBeenCalledWith({
+      kind: "auth_error",
+      reason: "unexpected_qr",
+    });
     expect(socket.end).toHaveBeenCalledOnce();
+  });
+
+  it("keeps bootstrap history and init queries enabled while full history stays disabled", async () => {
+    const store: AuthStore = {
+      read: vi.fn(async () => undefined),
+      write: vi.fn(async () => undefined),
+      delete: vi.fn(async () => undefined),
+      list: vi.fn(async () => []),
+      flush: vi.fn(async () => undefined),
+    };
+    const noop = () => undefined;
+    const logger: GatewayLogger = { debug: noop, info: noop, warn: noop, error: noop };
+    const socket = {
+      ev: { on: vi.fn() },
+      end: vi.fn(async () => undefined),
+    };
+    const socketFactory = vi.fn((_options: Record<string, unknown>) => socket);
+    const connector = new BaileysConnector(store, logger, socketFactory as never);
+
+    await connector.open({ onQr: noop, onOpen: noop, onClose: noop }, { allowQr: true });
+
+    const options = socketFactory.mock.calls[0]![0] as Record<string, unknown>;
+    expect(options.syncFullHistory).toBe(false);
+    expect(options).not.toHaveProperty("shouldSyncHistoryMessage");
+    expect(options).not.toHaveProperty("fireInitQueries");
+    expect(PROCESSABLE_HISTORY_TYPES).toContain(
+      proto.HistorySync.HistorySyncType.INITIAL_BOOTSTRAP,
+    );
+    expect(
+      DEFAULT_CONNECTION_CONFIG.shouldSyncHistoryMessage({
+        syncType: proto.HistorySync.HistorySyncType.INITIAL_BOOTSTRAP,
+      }),
+    ).toBe(true);
+    expect(
+      DEFAULT_CONNECTION_CONFIG.shouldSyncHistoryMessage({
+        syncType: proto.HistorySync.HistorySyncType.RECENT,
+      }),
+    ).toBe(true);
+    expect(
+      DEFAULT_CONNECTION_CONFIG.shouldSyncHistoryMessage({
+        syncType: proto.HistorySync.HistorySyncType.FULL,
+      }),
+    ).toBe(false);
+  });
+
+  it("flushes pending credential writes before reporting a transient close", async () => {
+    let finishWrite: (() => void) | undefined;
+    const writeFinished = new Promise<void>((resolve) => {
+      finishWrite = resolve;
+    });
+    const store: AuthStore = {
+      read: vi.fn(async () => undefined),
+      write: vi.fn(() => writeFinished),
+      delete: vi.fn(async () => undefined),
+      list: vi.fn(async () => []),
+      flush: vi.fn(async () => undefined),
+    };
+    const noop = () => undefined;
+    const logger: GatewayLogger = { debug: noop, info: noop, warn: noop, error: noop };
+    const handlers = new Map<string, (update?: Record<string, unknown>) => void>();
+    const socket = {
+      ev: {
+        on(event: string, handler: (update?: Record<string, unknown>) => void) {
+          handlers.set(event, handler);
+        },
+      },
+      end: vi.fn(async () => undefined),
+    };
+    const onClose = vi.fn();
+    const connector = new BaileysConnector(store, logger, (() => socket) as never);
+    await connector.open({ onQr: noop, onOpen: noop, onClose }, { allowQr: true });
+    handlers.get("creds.update")!();
+    handlers.get("connection.update")!({
+      connection: "close",
+      lastDisconnect: { error: boomLike(DisconnectReason.restartRequired) },
+    });
+
+    await Promise.resolve();
+    expect(onClose).not.toHaveBeenCalled();
+    finishWrite!();
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(store.flush).toHaveBeenCalledOnce();
   });
 
   it("waits for pending credential writes before socket close completes", async () => {

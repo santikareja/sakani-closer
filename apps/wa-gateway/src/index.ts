@@ -4,9 +4,9 @@ import { createLogger } from "@sakani/logger";
 import { ZodError } from "zod";
 
 import {
-  hasRegisteredBaileysSession,
-  readBaileysAutoReconnectIntent,
+  inspectBaileysAuthState,
   writeBaileysAutoReconnectIntent,
+  type BaileysAuthStateInspection,
 } from "./auth/baileys-auth-state.js";
 import { EncryptedFileAuthStore } from "./auth/encrypted-store.js";
 import type { AuthStore } from "./auth/store.js";
@@ -119,7 +119,8 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<G
     DEFAULT_RETRY_MAX_DELAY_MS,
     DEFAULT_MAX_RETRY_ATTEMPTS,
     {
-      setAutoReconnect: (enabled) => writeBaileysAutoReconnectIntent(authStore, enabled),
+      setAutoReconnect: (enabled, reason) =>
+        writeBaileysAutoReconnectIntent(authStore, enabled, "default", reason),
     },
   );
   const server = createGatewayServer({
@@ -131,25 +132,59 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<G
 
   await listen(server, config.port);
   let autoReconnect = false;
+  let authInspection: BaileysAuthStateInspection;
   try {
-    const [hasRegisteredSession, reconnectIntent] = await Promise.all([
-      hasRegisteredBaileysSession(authStore),
-      readBaileysAutoReconnectIntent(authStore),
-    ]);
-    autoReconnect = hasRegisteredSession && reconnectIntent !== false;
+    authInspection = await inspectBaileysAuthState(authStore);
+    autoReconnect = authInspection.authState === "present" && authInspection.autoReconnect;
+    if (authInspection.authState === "invalid") {
+      manager.authenticationFailedAtStartup();
+      logger.error(
+        {
+          event: "wa.auth.startup_load_failed",
+          authState: authInspection.authState,
+          authDirectory: config.authDataDirectory,
+          state: manager.getStatus().state,
+          reason: authInspection.reason,
+        },
+        "Session WhatsApp tersimpan tidak valid dan tidak akan dicoba ulang",
+      );
+    }
     if (autoReconnect) await manager.reconnectAtStartup();
   } catch {
     manager.authenticationFailedAtStartup();
+    authInspection = {
+      authState: "invalid",
+      registered: false,
+      autoReconnect: false,
+      reason: "invalid_auth",
+    };
     logger.error(
-      { event: "wa.auth.startup_load_failed" },
-      "Session WhatsApp tersimpan tidak dapat dimuat",
+      {
+        event: "wa.auth.startup_load_failed",
+        authState: "invalid",
+        authDirectory: config.authDataDirectory,
+        state: manager.getStatus().state,
+        reason: "integrity_validation_failed",
+      },
+      "Session WhatsApp terenkripsi gagal divalidasi dan tidak akan dicoba ulang",
     );
   }
+  const startupState = manager.getStatus().state;
   logger.info(
-    { event: "wa.gateway.started", port: config.port, autoReconnect },
+    {
+      event: "wa.gateway.started",
+      port: config.port,
+      autoReconnect,
+      authState: authInspection.authState,
+      authDirectory: config.authDataDirectory,
+      state: startupState,
+      reason: authInspection.reason,
+    },
     autoReconnect
       ? "Gateway WhatsApp memulai reconnect session tersimpan"
-      : "Gateway WhatsApp siap tanpa session tersimpan",
+      : authInspection.authState === "present"
+        ? "Gateway WhatsApp siap dengan reconnect session dinonaktifkan"
+        : "Gateway WhatsApp siap tanpa session yang dapat dipulihkan",
   );
 
   let stopPromise: Promise<void> | undefined;

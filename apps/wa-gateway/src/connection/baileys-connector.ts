@@ -9,7 +9,7 @@ import { clearBaileysAuthState, createBaileysAuthState } from "../auth/baileys-a
 import type { AuthStore } from "../auth/store.js";
 import type {
   ConnectionCallbacks,
-  DisconnectKind,
+  DisconnectDiagnostic,
   GatewayConnector,
   GatewayLogger,
   GatewayOpenOptions,
@@ -30,18 +30,55 @@ function getDisconnectStatusCode(error: unknown): number | undefined {
   return typeof output.statusCode === "number" ? output.statusCode : undefined;
 }
 
-export function classifyDisconnect(error: unknown): DisconnectKind {
+function getDisconnectMessage(error: unknown): string | undefined {
+  if (!error || typeof error !== "object" || !("message" in error)) return undefined;
+  return typeof error.message === "string" ? error.message : undefined;
+}
+
+export function classifyDisconnect(error: unknown): DisconnectDiagnostic {
   const code = getDisconnectStatusCode(error);
-  if (code === DisconnectReason.loggedOut) return "logged_out";
-  if (
-    code === DisconnectReason.badSession ||
-    code === DisconnectReason.multideviceMismatch ||
-    code === DisconnectReason.forbidden ||
-    code === DisconnectReason.connectionReplaced
-  ) {
-    return "auth_error";
+  if (code === DisconnectReason.loggedOut) {
+    return { kind: "logged_out", reason: "logged_out", statusCode: code };
   }
-  return "transient_error";
+  if (code === DisconnectReason.badSession) {
+    return { kind: "auth_error", reason: "bad_session", statusCode: code };
+  }
+  if (code === DisconnectReason.connectionReplaced) {
+    return { kind: "auth_error", reason: "connection_replaced", statusCode: code };
+  }
+  if (code === DisconnectReason.multideviceMismatch) {
+    return { kind: "auth_error", reason: "multidevice_mismatch", statusCode: code };
+  }
+  if (code === DisconnectReason.forbidden) {
+    return { kind: "auth_error", reason: "forbidden", statusCode: code };
+  }
+  if (code === DisconnectReason.restartRequired) {
+    return { kind: "transient_error", reason: "restart_required", statusCode: code };
+  }
+  if (code === DisconnectReason.connectionLost) {
+    const timedOut = /timed?\s*out/i.test(getDisconnectMessage(error) ?? "");
+    return {
+      kind: "transient_error",
+      reason: timedOut ? "timed_out" : "connection_lost",
+      statusCode: code,
+    };
+  }
+  if (code === DisconnectReason.connectionClosed) {
+    const serverClose = /server/i.test(getDisconnectMessage(error) ?? "");
+    return {
+      kind: "transient_error",
+      reason: serverClose ? "server_connection_close" : "connection_closed",
+      statusCode: code,
+    };
+  }
+  if (code === DisconnectReason.unavailableService) {
+    return { kind: "transient_error", reason: "service_unavailable", statusCode: code };
+  }
+  return {
+    kind: "transient_error",
+    reason: "unknown_transient",
+    ...(code === undefined ? {} : { statusCode: code }),
+  };
 }
 
 export function maskPhoneNumber(value: string | undefined): string | undefined {
@@ -79,9 +116,7 @@ export class BaileysConnector implements GatewayConnector {
       logger: this.logger as never,
       markOnlineOnConnect: false,
       syncFullHistory: false,
-      fireInitQueries: false,
       enableRecentMessageCache: false,
-      shouldSyncHistoryMessage: () => false,
       shouldIgnoreJid: (jid) => Boolean(isJidGroup(jid) || isJidBroadcast(jid)),
       getMessage: async () => undefined,
     });
@@ -103,7 +138,7 @@ export class BaileysConnector implements GatewayConnector {
         );
         if (!closed) {
           closed = true;
-          callbacks.onClose("auth_error");
+          callbacks.onClose({ kind: "auth_error", reason: "auth_persistence_failed" });
           void socket.end(new Error("auth_persistence_failed"));
         }
       });
@@ -113,28 +148,36 @@ export class BaileysConnector implements GatewayConnector {
       if (update.qr && options.allowQr) callbacks.onQr(update.qr);
       if (update.qr && !options.allowQr && !closed) {
         closed = true;
-        callbacks.onClose("auth_error");
+        callbacks.onClose({ kind: "auth_error", reason: "unexpected_qr" });
         void socket.end(new Error("unexpected_qr_for_registered_session"));
         return;
       }
       if (update.connection === "open") callbacks.onOpen(getMaskedSocketIdentity(socket));
       if (update.connection === "close" && !closed) {
         closed = true;
-        const kind = classifyDisconnect(update.lastDisconnect?.error);
-        if (kind === "logged_out") {
+        const diagnostic = classifyDisconnect(update.lastDisconnect?.error);
+        if (diagnostic.kind === "logged_out") {
           void flushCredentialWrites()
             .then(() => clearBaileysAuthState(this.authStore))
-            .then(() => callbacks.onClose("logged_out"))
+            .then(() => callbacks.onClose(diagnostic))
             .catch(() => {
               this.logger.error(
                 { event: "wa.auth.clear_failed" },
                 "Sesi WhatsApp yang logout gagal dibersihkan",
               );
-              callbacks.onClose("auth_error");
+              callbacks.onClose({ kind: "auth_error", reason: "auth_persistence_failed" });
             });
           return;
         }
-        callbacks.onClose(kind);
+        void flushCredentialWrites()
+          .then(() => callbacks.onClose(diagnostic))
+          .catch(() => {
+            this.logger.error(
+              { event: "wa.auth.flush_failed" },
+              "Kredensial WhatsApp gagal diselesaikan saat koneksi ditutup",
+            );
+            callbacks.onClose({ kind: "auth_error", reason: "auth_persistence_failed" });
+          });
       }
     });
 
