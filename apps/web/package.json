@@ -1,0 +1,25 @@
+{
+  "name": "@sakani/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sakani/config": "workspace:*",
+    "@sakani/database": "workspace:*",
+    "@sakani/logger": "workspace:*",
+    "@sakani/shared": "workspace:*",
+    "next": "^16.2.9",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "redis": "^5.9.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2"
+  }
+}

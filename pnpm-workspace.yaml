@@ -1,0 +1,13 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+allowBuilds:
+  esbuild: true
+
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+
+overrides:
+  "@esbuild-kit/core-utils@3.3.2>esbuild": "0.25.12"

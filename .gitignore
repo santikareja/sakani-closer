@@ -1,0 +1,34 @@
+# Dependencies and build output
+node_modules/
+.next/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Environment and secrets (keep documented examples)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+
+# Sensitive runtime data
+whatsapp-sessions/
+wa-auth/
+uploads/
+backups/
+*.dump
+*.sql.gz
+*.log
+logs/
+volumes/
+
+# Editors and OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

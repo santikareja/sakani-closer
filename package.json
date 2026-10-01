@@ -1,0 +1,35 @@
+{
+  "name": "sakani-closer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sakani Closer Phase 0 monorepo foundation",
+  "packageManager": "pnpm@11.1.2",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "dev:web": "pnpm --filter @sakani/web dev",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "pnpm --filter @sakani/database db:generate",
+    "db:migrate": "pnpm --filter @sakani/database db:migrate",
+    "db:seed": "pnpm --filter @sakani/database db:seed",
+    "docker:check": "docker compose config --quiet"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.19.0",
+    "eslint": "^10.11.0",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.9",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.0",
+    "vitest": "^5.0.3"
+  }
+}
