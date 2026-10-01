@@ -4,6 +4,7 @@ import { getWebEnv } from "@sakani/config";
 
 import { getCurrentSession } from "../auth/dal";
 import { createWhatsAppGatewayClient } from "./gateway-client";
+import { DrizzleInboundRepository } from "./inbound-repository";
 import type { WhatsAppRouteDependencies } from "./route-handlers";
 
 export function getWhatsAppRouteDependencies(): WhatsAppRouteDependencies {
@@ -12,5 +13,6 @@ export function getWhatsAppRouteDependencies(): WhatsAppRouteDependencies {
     applicationUrl: env.APP_URL,
     getSession: getCurrentSession,
     gateway: createWhatsAppGatewayClient(env.WA_GATEWAY_URL, env.INTERNAL_SERVICE_TOKEN),
+    accountRegistry: new DrizzleInboundRepository(),
   };
 }

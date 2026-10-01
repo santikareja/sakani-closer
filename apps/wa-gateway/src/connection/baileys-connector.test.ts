@@ -16,6 +16,7 @@ import {
 } from "./baileys-connector.js";
 import { inspectBaileysAuthState } from "../auth/baileys-auth-state.js";
 import type { AuthStore } from "../auth/store.js";
+import type { InboundEventSink } from "../messages/event-sink.js";
 import type { GatewayLogger } from "./types.js";
 
 function boomLike(statusCode: number) {
@@ -416,5 +417,65 @@ describe("Baileys disconnect classification", () => {
     await closePromise;
 
     expect(store.flush).toHaveBeenCalledOnce();
+  });
+
+  it("publishes inbound events without invoking Baileys sendMessage", async () => {
+    const store: AuthStore = {
+      read: vi.fn(async () => undefined),
+      write: vi.fn(async () => undefined),
+      delete: vi.fn(async () => undefined),
+      list: vi.fn(async () => []),
+      flush: vi.fn(async () => undefined),
+    };
+    const noop = () => undefined;
+    const logger: GatewayLogger = { debug: noop, info: noop, warn: noop, error: noop };
+    const handlers = new Map<string, (event: never) => void>();
+    const sendMessage = vi.fn();
+    const socket = {
+      ev: {
+        on(event: string, handler: (event: never) => void) {
+          handlers.set(event, handler);
+        },
+      },
+      end: vi.fn(async () => undefined),
+      sendMessage,
+    };
+    const sink: InboundEventSink = {
+      publish: vi.fn(),
+      flush: vi.fn(async () => undefined),
+    };
+    const connector = new BaileysConnector(
+      store,
+      logger,
+      (() => socket) as never,
+      sink,
+      "identifier-hash-key-with-at-least-32-characters",
+    );
+    const gatewaySocket = await connector.open(
+      { onQr: noop, onOpen: noop, onClose: noop },
+      { allowQr: true },
+    );
+
+    handlers.get("messages.upsert")!({
+      type: "notify",
+      messages: [
+        {
+          key: {
+            id: "provider-1",
+            remoteJid: "628123456789@s.whatsapp.net",
+            fromMe: false,
+          },
+          messageTimestamp: 1_790_812_800,
+          message: { conversation: "Halo" },
+        },
+      ],
+    } as never);
+
+    expect(sink.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "accepted", messageType: "text" }),
+    );
+    expect(sendMessage).not.toHaveBeenCalled();
+    await gatewaySocket.close();
+    expect(sink.flush).toHaveBeenCalledOnce();
   });
 });

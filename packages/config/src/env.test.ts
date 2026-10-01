@@ -24,6 +24,7 @@ const validGatewayEnv = {
   WA_LOG_LEVEL: "silent",
   SESSION_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
   INTERNAL_SERVICE_TOKEN: "gateway-test-token-at-least-32-characters",
+  WA_INGEST_URL: "http://web:3000/api/v1/internal/whatsapp/messages",
 };
 
 describe("service-specific environment validation", () => {
@@ -69,6 +70,7 @@ describe("service-specific environment validation", () => {
         "WA_LOG_LEVEL",
         "SESSION_ENCRYPTION_KEY",
         "INTERNAL_SERVICE_TOKEN",
+        "WA_INGEST_URL",
       ].sort(),
     );
   });

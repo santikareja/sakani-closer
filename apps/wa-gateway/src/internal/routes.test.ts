@@ -50,6 +50,7 @@ describe("WhatsApp gateway internal routes", () => {
       qrManager,
       internalServiceToken: token,
       logger: testLogger(),
+      bindAccount: async () => undefined,
     });
     await listen(server, 0);
     const address = server.address() as AddressInfo;
@@ -120,7 +121,10 @@ describe("WhatsApp gateway internal routes", () => {
           authorization: `Bearer ${token}`,
           "content-type": "application/json",
         },
-        body: "{}",
+        body: JSON.stringify({
+          workspaceId: "00000000-0000-4000-8000-000000000001",
+          accountId: "00000000-0000-4000-8000-000000000002",
+        }),
       });
       statuses.push(response.status);
     }

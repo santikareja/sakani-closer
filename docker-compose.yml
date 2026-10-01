@@ -106,6 +106,7 @@ services:
       WA_LOG_LEVEL: ${WA_LOG_LEVEL:-info}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?Set INTERNAL_SERVICE_TOKEN in .env}
       SESSION_ENCRYPTION_KEY: ${SESSION_ENCRYPTION_KEY:?Set SESSION_ENCRYPTION_KEY in .env}
+      WA_INGEST_URL: http://web:3000/api/v1/internal/whatsapp/messages
     expose:
       - "3001"
     volumes:

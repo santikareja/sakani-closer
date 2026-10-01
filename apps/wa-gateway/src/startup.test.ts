@@ -38,6 +38,7 @@ const validGatewayEnvironment = {
   WA_LOG_LEVEL: "silent",
   SESSION_ENCRYPTION_KEY: encryptionSecret,
   INTERNAL_SERVICE_TOKEN: internalToken,
+  WA_INGEST_URL: "http://web:3000/api/v1/internal/whatsapp/messages",
 };
 
 function createCapturedLogger(): {

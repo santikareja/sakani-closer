@@ -7,6 +7,8 @@ import makeWASocket, {
 
 import { clearBaileysAuthState, createBaileysAuthState } from "../auth/baileys-auth-state.js";
 import type { AuthStore } from "../auth/store.js";
+import type { InboundEventSink } from "../messages/event-sink.js";
+import { normalizeInboundMessage } from "../messages/normalizer.js";
 import type {
   ConnectionCallbacks,
   DisconnectDiagnostic,
@@ -124,6 +126,8 @@ export class BaileysConnector implements GatewayConnector {
     private readonly authStore: AuthStore,
     private readonly logger: GatewayLogger,
     private readonly socketFactory: typeof makeWASocket = makeWASocket,
+    private readonly inboundEventSink?: InboundEventSink,
+    private readonly identifierHashKey?: string,
   ) {}
 
   async open(callbacks: ConnectionCallbacks, options: GatewayOpenOptions): Promise<GatewaySocket> {
@@ -167,6 +171,21 @@ export class BaileysConnector implements GatewayConnector {
       if (closed) return;
       void queueCredentialWrite().catch(reportPersistenceFailure);
     });
+
+    const inboundEventSink = this.inboundEventSink;
+    const identifierHashKey = this.identifierHashKey;
+    if (inboundEventSink && identifierHashKey) {
+      socket.ev.on("messages.upsert", ({ messages, type }) => {
+        for (const message of messages) {
+          inboundEventSink.publish(
+            normalizeInboundMessage(message, {
+              upsertType: type,
+              identifierHashKey,
+            }),
+          );
+        }
+      });
+    }
 
     socket.ev.on("connection.update", (update) => {
       if (update.qr && options.allowQr) callbacks.onQr(update.qr);
@@ -220,6 +239,7 @@ export class BaileysConnector implements GatewayConnector {
           await socket.end(undefined);
         } finally {
           await flushCredentialWrites();
+          await this.inboundEventSink?.flush();
         }
       },
     };

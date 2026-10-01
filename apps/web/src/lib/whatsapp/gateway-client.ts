@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { WhatsAppAccountBinding } from "@sakani/shared";
 import type { z } from "zod";
 
 import {
@@ -13,7 +14,7 @@ import {
 
 export interface WhatsAppGatewayClient {
   getStatus(): Promise<GatewayStatusResponse>;
-  connect(): Promise<GatewayStatusResponse>;
+  connect(binding: WhatsAppAccountBinding): Promise<GatewayStatusResponse>;
   disconnect(): Promise<GatewayStatusResponse>;
   getQr(): Promise<GatewayQrResponse>;
 }
@@ -35,6 +36,7 @@ export function createWhatsAppGatewayClient(
     path: string,
     schema: z.ZodType<T>,
     method: "GET" | "POST" = "GET",
+    body: unknown = {},
   ): Promise<T> => {
     let response: Response;
     try {
@@ -44,7 +46,7 @@ export function createWhatsAppGatewayClient(
           authorization: `Bearer ${internalServiceToken}`,
           ...(method === "POST" ? { "content-type": "application/json" } : {}),
         },
-        ...(method === "POST" ? { body: "{}" } : {}),
+        ...(method === "POST" ? { body: JSON.stringify(body) } : {}),
         cache: "no-store",
         signal: AbortSignal.timeout(5_000),
       });
@@ -68,7 +70,8 @@ export function createWhatsAppGatewayClient(
 
   return {
     getStatus: () => request("/internal/status", gatewayStatusResponseSchema),
-    connect: () => request("/internal/connect", gatewayStatusResponseSchema, "POST"),
+    connect: (binding) =>
+      request("/internal/connect", gatewayStatusResponseSchema, "POST", binding),
     disconnect: () => request("/internal/disconnect", gatewayStatusResponseSchema, "POST"),
     getQr: () => request("/internal/qr", gatewayQrResponseSchema),
   };

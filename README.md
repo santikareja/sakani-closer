@@ -1,6 +1,6 @@
 # Sakani Closer
 
-Sakani Closer is an internal, AI-enabled WhatsApp property-marketing system for Sakani. This repository currently implements **Phase 2B**: the Phase 0 deployment foundation, Phase 1 owner/workspace authorization, and owner-controlled WhatsApp QR login with encrypted session persistence. The gateway reconnects a valid registered session after restart, but it does not create QR automatically for a new account, send messages, process chats, call an AI provider, or manage leads.
+Sakani Closer is an internal, AI-enabled WhatsApp property-marketing system for Sakani. This repository currently implements **Batch 1 receive-only ingestion** on top of Phase 0, Phase 1, and Phase 2B. A registered WhatsApp session reconnects after restart, direct inbound text/image/document metadata is stored idempotently, and an authenticated owner can read it at `/dashboard/inbox`. No message-send path, AI call, RAG, or follow-up automation is enabled.
 
 ## Phase 0 status
 
@@ -55,6 +55,19 @@ Included:
 
 Still not included: incoming message processing, sending, groups, broadcasts, pairing codes, AI, RAG, CRM, media, or follow-up automation.
 
+## Batch 1 receive-only status
+
+Included:
+
+- `messages.upsert` normalization for private text, extended text, image metadata, and document metadata.
+- Explicit filtering of groups, broadcasts, status, unsupported JIDs/content, historical append events, and owner-originated messages.
+- Additive workspace-scoped `wa_accounts`, `contacts`, `conversations`, `messages`, and `message_media` tables.
+- Database-backed idempotency on workspace, WhatsApp account, and provider message ID.
+- A bearer-authenticated gateway-to-web ingestion endpoint; raw Baileys messages and full JIDs never cross this boundary.
+- Protected cursor-paginated inbox list/detail APIs and `/dashboard/inbox`.
+
+Still not included: outbound/manual send, auto-reply, AI, RAG, full media download, groups, broadcasts, CRM automation, scoring, or follow-up. Existing Phase 2B sessions need one authenticated **Hubungkan** action after this deployment to bind the encrypted gateway session to the owner workspace; the binding then persists across restarts and reuses the existing session without a QR.
+
 ## Prerequisites
 
 - Node.js 22 or newer (Node.js 24 is used by the container image).
@@ -76,7 +89,7 @@ cp .env.example .env
 
 Edit `.env` before starting services. Replace the PostgreSQL password, Redis password, `AUTH_SECRET`, `INTERNAL_SERVICE_TOKEN`, and `SESSION_ENCRYPTION_KEY` placeholders with independent, high-entropy values. Each application secret must contain at least 32 characters. The recommended 32-byte base64url generator is documented in `.env.example`; existing high-entropy 64-character secrets are also accepted and normalized to an AES-256 key. Never commit `.env`.
 
-Environment validation is service-specific: migration and seed commands require only `DATABASE_URL`; the web runtime additionally requires `APP_URL`, `REDIS_URL`, `AUTH_SECRET`, `WA_GATEWAY_URL`, and `INTERNAL_SERVICE_TOKEN`; the gateway requires only its port/log/path settings plus its encryption key and internal token. The worker contract remains separate. Database tools never validate web or gateway secrets.
+Environment validation is service-specific: migration and seed commands require only `DATABASE_URL`; the web runtime additionally requires `APP_URL`, `REDIS_URL`, `AUTH_SECRET`, `WA_GATEWAY_URL`, and `INTERNAL_SERVICE_TOKEN`; the gateway requires only its port/log/path settings, ingestion URL, encryption key, and internal token. The worker contract remains separate. Database tools never validate web or gateway secrets.
 
 PowerShell equivalent for the copy step:
 
@@ -159,7 +172,7 @@ docker compose ps wa-gateway
 docker compose exec wa-gateway node -e "fetch('http://127.0.0.1:3001/health').then(async r => { console.log(r.status, await r.json()); if (!r.ok) process.exit(1) })"
 ```
 
-There is no host port for the gateway. Its `gateway_private` bridge permits outbound WhatsApp connectivity and service-to-service access but does not publish port `3001`. `/internal/*` requires `Authorization: Bearer <INTERNAL_SERVICE_TOKEN>`; `/health` is intentionally token-free for the container healthcheck. The browser never receives this internal token and reaches the QR only through the authenticated web backend.
+There is no host port for the gateway. Its `gateway_private` bridge permits outbound WhatsApp connectivity and service-to-service access but does not publish port `3001`. `/internal/*` requires `Authorization: Bearer <INTERNAL_SERVICE_TOKEN>`; `/health` is intentionally token-free for the container healthcheck. The browser never receives this internal token. The gateway posts canonical inbound events to the private web endpoint configured by `WA_INGEST_URL`; it has no database credentials.
 
 After both services are healthy, sign in as the owner and open `/dashboard/settings/whatsapp`. Disconnect closes the active socket, preserves the encrypted session, and persists a disabled reconnect intent, so subsequent restarts remain disconnected. A later explicit Connect re-enables startup reconnect and can reuse valid credentials without requesting QR.
 
@@ -209,7 +222,7 @@ Named volumes are persistent but are not backups. Phase 0 includes a documented 
 
 ```text
 apps/web/          Next.js auth, protected dashboard, and health application
-apps/wa-gateway/   Phase 2B owner-controlled QR/session gateway; sending disabled
+apps/wa-gateway/   QR/session gateway plus receive-only normalization; sending disabled
 apps/worker/       Phase 0 boundary; no queue processing
 packages/config/   Zod environment contracts
 packages/database/ Drizzle schema, migration, seed, and health query
@@ -231,3 +244,9 @@ Rollback should restore the pre-Phase-1 database backup and deploy the previous 
 Deploy with `git pull --ff-only origin main`, validate Compose, rebuild `wa-gateway` and `web` without cache, and start `postgres redis web wa-gateway`. Verify both health endpoints and confirm `docker compose port wa-gateway 3001` prints no host binding. Internal status checks must run from the web/gateway Compose network and pass the token without printing it.
 
 Rollback by stopping only `web` and `wa-gateway`, deploying the pre-Phase-2B application revision, and rebuilding those two services. Do not remove `wa_auth_data`, database volumes, or the database. If the session encryption key changes, restore the matching protected key and encrypted auth-volume backup together.
+
+## Batch 1 deployment and rollback
+
+Create a protected PostgreSQL backup, review `0002_productive_kinsey_walden.sql`, and run the committed migration with the tools profile. Rebuild `web` and `wa-gateway`, start both services, sign in, and press **Hubungkan** once to persist the workspace/account binding for an existing Phase 2B session. Send one direct test message, confirm exactly one inbox row, and confirm the WhatsApp test number sends no reply.
+
+For application rollback, deploy the previous revision and rebuild only `web` and `wa-gateway`. The Batch 1 migration is additive, so its empty or retained tables can remain for the old application. Restore the database backup only when explicitly required; never remove `postgres_data` or `wa_auth_data`, and never use `docker compose down -v`.

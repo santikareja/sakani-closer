@@ -18,6 +18,9 @@ describe("WhatsApp gateway Compose boundary", () => {
     expect(gatewayBlock).not.toContain("REDIS_URL");
     expect(gatewayBlock).not.toContain("APP_URL");
     expect(gatewayBlock).not.toContain("AUTH_SECRET");
+    expect(gatewayBlock).toContain(
+      "WA_INGEST_URL: http://web:3000/api/v1/internal/whatsapp/messages",
+    );
   });
 
   it("allows only the web backend to reach the gateway through the private network", async () => {

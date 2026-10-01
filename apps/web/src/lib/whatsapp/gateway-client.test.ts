@@ -31,4 +31,30 @@ describe("WhatsApp gateway server client", () => {
     expect(init?.headers).toMatchObject({ authorization: `Bearer ${token}` });
     expect(JSON.stringify(result)).not.toContain(token);
   });
+
+  it("passes only the server-derived workspace/account binding on connect", async () => {
+    const fetchImplementation = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) =>
+      Response.json({
+        connection: {
+          state: "connecting",
+          reason: "connect_requested",
+          updatedAt: "2026-10-01T00:00:00.000Z",
+        },
+      }),
+    );
+    const client = createWhatsAppGatewayClient(
+      "http://wa-gateway:3001",
+      "private-internal-token-at-least-32-characters",
+      fetchImplementation as typeof fetch,
+    );
+    const binding = {
+      workspaceId: "00000000-0000-4000-8000-000000000001",
+      accountId: "00000000-0000-4000-8000-000000000002",
+    };
+
+    await client.connect(binding);
+    const [url, init] = fetchImplementation.mock.calls[0]!;
+    expect(String(url)).toBe("http://wa-gateway:3001/internal/connect");
+    expect(init?.body).toBe(JSON.stringify(binding));
+  });
 });

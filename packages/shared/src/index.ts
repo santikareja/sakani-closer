@@ -18,3 +18,58 @@ export interface RequestContext {
   correlationId: string;
   workspaceId?: string;
 }
+
+export const inboundMessageTypes = ["text", "image", "document"] as const;
+export type InboundMessageType = (typeof inboundMessageTypes)[number];
+
+export const ignoredInboundReasons = [
+  "group",
+  "broadcast",
+  "status",
+  "unsupported_jid",
+  "unsupported_content",
+  "from_me",
+  "historical_event",
+  "missing_identity",
+] as const;
+export type IgnoredInboundReason = (typeof ignoredInboundReasons)[number];
+
+export interface WhatsAppAccountBinding {
+  workspaceId: string;
+  accountId: string;
+}
+
+export interface InboundMediaMetadata {
+  mimeType: string;
+  fileName?: string | undefined;
+  fileSize?: number | undefined;
+}
+
+export interface AcceptedInboundMessage {
+  outcome: "accepted";
+  providerMessageId: string;
+  providerMessageIdHash: string;
+  chatIdentifierHash: string;
+  displayName?: string | undefined;
+  phoneMasked?: string | undefined;
+  direction: "inbound";
+  messageType: InboundMessageType;
+  text?: string | undefined;
+  media?: InboundMediaMetadata | undefined;
+  providerTimestamp: string;
+  fromMe: false;
+}
+
+export interface IgnoredInboundMessage {
+  outcome: "ignored";
+  providerMessageIdHash?: string | undefined;
+  reason: IgnoredInboundReason;
+}
+
+export type NormalizedInboundMessage = AcceptedInboundMessage | IgnoredInboundMessage;
+
+export interface WhatsAppInboundEvent {
+  version: 1;
+  binding: WhatsAppAccountBinding;
+  message: NormalizedInboundMessage;
+}

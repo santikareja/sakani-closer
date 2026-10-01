@@ -1,6 +1,8 @@
 import { z } from "zod";
+import type { WorkspaceContext } from "@sakani/database";
 
 import { isSameOriginMutation } from "../auth/http";
+import type { CurrentSession } from "../auth/types";
 import {
   GatewayRequestError,
   type GatewayQrResponse,
@@ -12,8 +14,11 @@ const emptyBodySchema = z.object({}).strict();
 
 export interface WhatsAppRouteDependencies {
   applicationUrl: string;
-  getSession(): Promise<unknown | null>;
+  getSession(): Promise<CurrentSession | null>;
   gateway: WhatsAppGatewayClient;
+  accountRegistry: {
+    ensureAccount(context: WorkspaceContext): Promise<{ id: string }>;
+  };
 }
 
 function json(payload: unknown, status = 200): Response {
@@ -52,15 +57,11 @@ function hasEmptyQuery(request: Request): boolean {
   return new URL(request.url).searchParams.size === 0;
 }
 
-async function hasSession(dependencies: WhatsAppRouteDependencies): Promise<boolean> {
-  return (await dependencies.getSession()) !== null;
-}
-
 export async function handleWhatsAppStatus(
   request: Request,
   dependencies: WhatsAppRouteDependencies,
 ): Promise<Response> {
-  if (!(await hasSession(dependencies))) {
+  if (!(await dependencies.getSession())) {
     return json({ error: { code: "UNAUTHORIZED", message: "Sesi owner diperlukan." } }, 401);
   }
   if (!hasEmptyQuery(request)) {
@@ -78,7 +79,7 @@ export async function handleWhatsAppQr(
   request: Request,
   dependencies: WhatsAppRouteDependencies,
 ): Promise<Response> {
-  if (!(await hasSession(dependencies))) {
+  if (!(await dependencies.getSession())) {
     return json({ error: { code: "UNAUTHORIZED", message: "Sesi owner diperlukan." } }, 401);
   }
   if (!hasEmptyQuery(request)) {
@@ -92,10 +93,6 @@ export async function handleWhatsAppQr(
   }
 }
 
-type MutationAction =
-  | (() => Promise<GatewayStatusResponse>)
-  | (() => Promise<{ connection: GatewayStatusResponse["connection"] }>);
-
 export async function handleWhatsAppMutation(
   request: Request,
   dependencies: WhatsAppRouteDependencies,
@@ -104,7 +101,8 @@ export async function handleWhatsAppMutation(
   if (!isSameOriginMutation(request, dependencies.applicationUrl)) {
     return json({ error: { code: "FORBIDDEN", message: "Origin permintaan tidak valid." } }, 403);
   }
-  if (!(await hasSession(dependencies))) {
+  const session = await dependencies.getSession();
+  if (!session) {
     return json({ error: { code: "UNAUTHORIZED", message: "Sesi owner diperlukan." } }, 401);
   }
 
@@ -115,20 +113,18 @@ export async function handleWhatsAppMutation(
     return json({ error: { code: "INVALID_REQUEST", message: "Permintaan tidak valid." } }, 400);
   }
 
-  const operations: Record<typeof action, MutationAction> = {
-    connect: () => dependencies.gateway.connect(),
-    disconnect: () => dependencies.gateway.disconnect(),
-    refresh: async () => {
-      await dependencies.gateway.disconnect();
-      return dependencies.gateway.connect();
-    },
-  };
-
   try {
-    return json(
-      await operations[action](),
-      action === "connect" || action === "refresh" ? 202 : 200,
-    );
+    if (action === "disconnect") {
+      return json(await dependencies.gateway.disconnect());
+    }
+    const account = await dependencies.accountRegistry.ensureAccount({
+      workspaceId: session.workspaceId,
+    });
+    const binding = { workspaceId: session.workspaceId, accountId: account.id };
+    if (action === "refresh") {
+      await dependencies.gateway.disconnect();
+    }
+    return json(await dependencies.gateway.connect(binding), 202);
   } catch (error) {
     return safeGatewayError(error);
   }

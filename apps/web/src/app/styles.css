@@ -505,6 +505,233 @@ h2 {
   line-height: 1.6;
 }
 
+.inbox-shell {
+  width: min(100% - 2rem, 78rem);
+}
+
+.inbox-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.inbox-page-header .back-link {
+  margin-bottom: 2rem;
+}
+
+.gateway-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-width: 13rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--surface);
+}
+
+.gateway-summary div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.gateway-summary small,
+.conversation-copy small,
+.conversation-item time,
+.message-bubble time {
+  color: var(--muted);
+}
+
+.inbox-layout {
+  display: grid;
+  grid-template-columns: minmax(18rem, 0.85fr) minmax(0, 1.55fr);
+  min-height: 36rem;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: var(--surface);
+  box-shadow: 0 1.2rem 3rem rgba(24, 35, 29, 0.06);
+}
+
+.conversation-list {
+  border-right: 1px solid var(--line);
+}
+
+.conversation-list-heading,
+.conversation-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.conversation-list-heading h2,
+.conversation-heading h2 {
+  margin: 0;
+}
+
+.conversation-list-heading span,
+.inbox-status {
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  background: #edf2ee;
+  color: var(--brand);
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+.conversation-item {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+  color: inherit;
+  text-decoration: none;
+}
+
+.conversation-item:hover,
+.conversation-item-active {
+  background: #f5f8f5;
+}
+
+.conversation-avatar {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  grid-row: 1 / span 2;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--brand);
+  color: white;
+  font-weight: 800;
+}
+
+.conversation-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.25rem;
+}
+
+.conversation-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-item time {
+  grid-column: 2;
+  font-size: 0.7rem;
+}
+
+.conversation-empty,
+.inbox-empty,
+.inbox-error {
+  padding: clamp(2rem, 6vw, 4rem);
+  color: var(--muted);
+}
+
+.inbox-detail {
+  min-width: 0;
+  background: #f7f8f5;
+}
+
+.inbox-empty {
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.conversation-heading {
+  background: var(--surface);
+}
+
+.conversation-heading p {
+  margin: 0.25rem 0 0;
+}
+
+.message-timeline {
+  display: grid;
+  gap: 0.9rem;
+  max-height: 42rem;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+.message-bubble {
+  width: min(88%, 38rem);
+  padding: 0.9rem 1rem;
+  border: 1px solid #dbe3dc;
+  border-radius: 0.25rem 1rem 1rem;
+  background: white;
+}
+
+.message-bubble p {
+  margin: 0.35rem 0;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.message-kind {
+  color: var(--brand);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.message-bubble time {
+  display: block;
+  margin-top: 0.6rem;
+  font-size: 0.7rem;
+}
+
+.media-metadata {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.8rem 0;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: #f2f5f2;
+  font-size: 0.78rem;
+}
+
+.media-metadata div {
+  display: grid;
+  grid-template-columns: 5rem minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+.media-metadata dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.inbox-pagination,
+.receive-only-note {
+  display: block;
+  margin: 1rem 1.25rem;
+}
+
+.receive-only-note {
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.inbox-error {
+  border: 1px solid #e0b8b2;
+  border-radius: 1rem;
+  background: var(--error-bg);
+}
+
 .qr-instruction {
   max-width: 35rem;
   margin: 0.5rem 0 0;
@@ -571,6 +798,20 @@ h2 {
   .whatsapp-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .inbox-page-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .inbox-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .conversation-list {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
   }
 }
 

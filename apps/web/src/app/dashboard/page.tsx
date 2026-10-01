@@ -57,12 +57,19 @@ export default async function DashboardPage() {
           </span>
           <span aria-hidden="true">→</span>
         </Link>
+        <Link className="dashboard-card dashboard-card-link" href="/dashboard/inbox">
+          <span>
+            <strong>Inbox WhatsApp</strong>
+            <small>Lihat pesan langsung masuk dalam mode receive-only</small>
+          </span>
+          <span aria-hidden="true">→</span>
+        </Link>
       </section>
 
       <section className="boundary" aria-labelledby="phase-title">
-        <h2 id="phase-title">Phase 2B aktif</h2>
+        <h2 id="phase-title">Batch 1 aktif</h2>
         <p>
-          QR login WhatsApp tersedia untuk satu akun test. Pengiriman pesan, AI, RAG, CRM, dan
+          Inbox menerima chat pribadi dan metadata media. Pengiriman pesan, AI, RAG, CRM, dan
           automasi tetap belum diaktifkan.
         </p>
       </section>

@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
+import type { WhatsAppAccountBinding } from "@sakani/shared";
 import { z } from "zod";
 
 import type { ConnectionManager } from "../connection/manager.js";
@@ -10,6 +11,12 @@ import { hasValidInternalToken } from "./auth.js";
 
 const emptyBodySchema = z.object({}).strict();
 const emptyQuerySchema = z.object({}).strict();
+const accountBindingSchema = z
+  .object({
+    workspaceId: z.string().uuid(),
+    accountId: z.string().uuid(),
+  })
+  .strict();
 
 class InvalidRequestError extends Error {}
 
@@ -40,6 +47,7 @@ export interface InternalRouteDependencies {
   qrManager: QrManager;
   internalServiceToken: string;
   logger: GatewayLogger;
+  bindAccount(binding: WhatsAppAccountBinding): Promise<void>;
 }
 
 function sendJson(response: ServerResponse, statusCode: number, payload: unknown): void {
@@ -103,7 +111,8 @@ export function createInternalRequestHandler(dependencies: InternalRouteDependen
             });
             return;
           }
-          emptyBodySchema.parse(await parseJsonBody(request));
+          const binding = accountBindingSchema.parse(await parseJsonBody(request));
+          await dependencies.bindAccount(binding);
           const connection = await dependencies.manager.connect();
           sendJson(response, 202, { connection });
           return;

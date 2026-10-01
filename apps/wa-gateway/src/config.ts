@@ -6,6 +6,7 @@ export interface GatewayConfig {
   logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent";
   sessionEncryptionKey: string;
   internalServiceToken: string;
+  ingestionUrl: string;
 }
 
 export function loadGatewayConfig(
@@ -18,5 +19,6 @@ export function loadGatewayConfig(
     logLevel: env.WA_LOG_LEVEL,
     sessionEncryptionKey: env.SESSION_ENCRYPTION_KEY,
     internalServiceToken: env.INTERNAL_SERVICE_TOKEN,
+    ingestionUrl: env.WA_INGEST_URL,
   };
 }

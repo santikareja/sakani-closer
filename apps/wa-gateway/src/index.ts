@@ -20,6 +20,8 @@ import {
 import { ConnectionStateMachine } from "./connection/state-machine.js";
 import type { GatewayConnector, GatewayLogger } from "./connection/types.js";
 import { loadGatewayConfig, type GatewayConfig } from "./config.js";
+import { AccountBindingStore } from "./messages/account-binding.js";
+import { HttpInboundEventSink } from "./messages/event-sink.js";
 import { QrManager } from "./qr/qr-manager.js";
 import { closeServer, createGatewayServer, listen } from "./server.js";
 
@@ -109,7 +111,30 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<G
     new EncryptedFileAuthStore(config.authDataDirectory, config.sessionEncryptionKey);
   const qrManager = new QrManager();
   const stateMachine = new ConnectionStateMachine();
-  const connector = options.connector ?? new BaileysConnector(authStore, logger);
+  const accountBindings = new AccountBindingStore(authStore);
+  try {
+    await accountBindings.load();
+  } catch {
+    logger.error(
+      { event: "wa.account_binding.load_failed" },
+      "Binding akun WhatsApp tidak valid; ingestion dinonaktifkan sampai Connect berikutnya",
+    );
+  }
+  const inboundEventSink = new HttpInboundEventSink(
+    config.ingestionUrl,
+    config.internalServiceToken,
+    accountBindings,
+    logger,
+  );
+  const connector =
+    options.connector ??
+    new BaileysConnector(
+      authStore,
+      logger,
+      undefined,
+      inboundEventSink,
+      config.sessionEncryptionKey,
+    );
   const manager = new ConnectionManager(
     connector,
     stateMachine,
@@ -128,6 +153,7 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<G
     qrManager,
     internalServiceToken: config.internalServiceToken,
     logger,
+    bindAccount: (binding) => accountBindings.set(binding),
   });
 
   await listen(server, config.port);
@@ -207,6 +233,7 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<G
   const stop = () => {
     stopPromise ??= (async () => {
       await manager.stop();
+      await inboundEventSink.flush();
       await closeServer(server);
     })();
     return stopPromise;

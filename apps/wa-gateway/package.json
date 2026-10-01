@@ -12,6 +12,7 @@
   "dependencies": {
     "@sakani/config": "workspace:*",
     "@sakani/logger": "workspace:*",
+    "@sakani/shared": "workspace:*",
     "@whiskeysockets/baileys": "7.0.0-rc14",
     "tsx": "4.21.0",
     "zod": "4.6.5"

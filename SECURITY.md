@@ -2,7 +2,7 @@
 
 ## Initial threat model
 
-Phase 2B protects against accidental secret disclosure, public database/cache/gateway exposure, cross-workspace query mistakes, dependency-health hangs, verbose production errors, password disclosure, session fixation, cross-site auth mutations, open redirects, basic login brute force, plaintext WhatsApp credentials, unauthenticated gateway control, QR persistence, and unbounded reconnect loops. Later phases must additionally address prompt injection, file processing, encrypted provider keys, opt-out enforcement, and human takeover.
+The current system protects against accidental secret disclosure, public database/cache/gateway exposure, cross-workspace query mistakes, session fixation, cross-site auth mutations, plaintext WhatsApp credentials, unauthenticated gateway control, QR persistence, and unbounded reconnect loops. Batch 1 additionally protects inbound ingestion with a private bearer-authenticated boundary, strict canonical payload validation, HMAC-derived JID identifiers, workspace/account binding, database uniqueness, and safe DTOs. Later phases must additionally address prompt injection, file processing, encrypted provider keys, opt-out enforcement, and human takeover.
 
 ## Secret handling
 
@@ -25,7 +25,9 @@ All `/internal/*` gateway routes require an independent high-entropy bearer toke
 
 Baileys uses an unofficial WhatsApp Web protocol. WhatsApp can change the protocol or restrict an account without notice. Phase 2A pins release-candidate version `7.0.0-rc14`; upgrades require a changelog/type review, full tests, and a manual staging login with a dedicated backup/test number. Do not use a critical sales number for initial validation.
 
-Message sending, cold outreach, bulk messaging, groups, broadcasts, and pairing codes are not implemented. Startup reconnect is allowed only when authenticated encryption succeeds, stored Baileys credentials have `registered: true`, and the encrypted reconnect intent is not disabled; it never creates a QR for a fresh account. Transient reconnects stop after five attempts; logged-out, invalid-auth, and explicitly disconnected sessions do not retry. Confirmed logout removes only that account's invalid encrypted auth records; explicit disconnect preserves valid auth while persisting `autoReconnect: false`, and a later manual Connect re-enables it. A future sending slice must add an explicit kill switch, opt-out enforcement, workspace authorization, throttling, and human takeover before any production use.
+Message sending, cold outreach, bulk messaging, groups, broadcasts, and pairing codes are not implemented. Private inbound messages are normalized in memory; raw `WAMessage` objects and full JIDs are not persisted or returned by public APIs. JID hashes are keyed with the gateway session-encryption key, while the internal service token is reserved for service authentication; only masked phone metadata can reach the inbox. Existing sessions require a one-time authenticated Connect after Batch 1 deployment so the encrypted gateway binding can associate inbound events with the session-derived workspace.
+
+Startup reconnect remains limited to authenticated, registered state with reconnect intent enabled. Transient reconnects stop after five attempts; logged-out, invalid-auth, and explicitly disconnected sessions do not retry. Confirmed logout removes only invalid auth records, while explicit disconnect preserves valid encrypted credentials. A future sending slice must add an explicit kill switch, opt-out enforcement, workspace authorization, throttling, and human takeover before any production use.
 
 ## Error handling
 
@@ -45,12 +47,12 @@ Production API errors return stable codes and correlation IDs without stack trac
 
 Report vulnerabilities privately to the repository owner. Include impact, reproduction steps with synthetic data, and a suggested mitigation. Do not open a public issue containing credentials or customer data.
 
-## Not implemented after Phase 2B
+## Not implemented after Batch 1
 
 - Application-level encryption for provider keys.
 - Upload scanning, MIME enforcement, and private object storage.
 - Caddy TLS termination and production monitoring.
 - Automated backup scheduling and tested restore drills.
-- Validated production WhatsApp login, message handling/sending, AI, RAG, CRM, skills, memory, and follow-up safety controls.
+- Validated production outbound WhatsApp sending, AI, RAG, CRM, skills, memory, and follow-up safety controls.
 
 See `infra/README.md` for the backup/restore placeholder and host hardening checklist.

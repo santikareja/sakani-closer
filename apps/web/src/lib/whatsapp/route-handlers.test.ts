@@ -15,6 +15,17 @@ const connection = {
   updatedAt: "2026-10-01T00:00:00.000Z",
 };
 
+const session = {
+  sessionId: "00000000-0000-4000-8000-000000000010",
+  userId: "00000000-0000-4000-8000-000000000011",
+  email: "owner@example.com",
+  displayName: "Owner",
+  workspaceId: "00000000-0000-4000-8000-000000000012",
+  workspaceName: "Sakani",
+  role: "owner",
+  expiresAt: new Date("2026-10-08T00:00:00.000Z"),
+};
+
 function createDependencies(authenticated = true) {
   const gateway: WhatsAppGatewayClient = {
     getStatus: vi.fn(async (): Promise<GatewayStatusResponse> => ({ connection })),
@@ -28,8 +39,13 @@ function createDependencies(authenticated = true) {
   };
   const dependencies: WhatsAppRouteDependencies = {
     applicationUrl: "https://sakani.example",
-    getSession: vi.fn(async () => (authenticated ? { userId: "owner" } : null)),
+    getSession: vi.fn(async () => (authenticated ? session : null)),
     gateway,
+    accountRegistry: {
+      ensureAccount: vi.fn(async () => ({
+        id: "00000000-0000-4000-8000-000000000013",
+      })),
+    },
   };
   return { dependencies, gateway };
 }
@@ -82,7 +98,10 @@ describe("WhatsApp web BFF authorization", () => {
     );
 
     expect(response.status).toBe(202);
-    expect(gateway.connect).toHaveBeenCalledOnce();
+    expect(gateway.connect).toHaveBeenCalledWith({
+      workspaceId: session.workspaceId,
+      accountId: "00000000-0000-4000-8000-000000000013",
+    });
     expect(JSON.stringify(await response.json())).not.toContain("INTERNAL_SERVICE_TOKEN");
   });
 

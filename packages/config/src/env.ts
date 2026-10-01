@@ -41,6 +41,7 @@ export const gatewayEnvSchema = z.object({
   WA_LOG_LEVEL: runtimeModeShape.LOG_LEVEL,
   SESSION_ENCRYPTION_KEY: z.string().min(32).max(1_024),
   INTERNAL_SERVICE_TOKEN: z.string().min(32),
+  WA_INGEST_URL: z.string().url(),
 });
 
 export const futureWorkerEnvSchema = databaseEnvSchema.extend({
