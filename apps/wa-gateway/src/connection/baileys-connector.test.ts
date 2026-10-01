@@ -1,12 +1,20 @@
 import {
   DEFAULT_CONNECTION_CONFIG,
   DisconnectReason,
+  initAuthCreds,
   PROCESSABLE_HISTORY_TYPES,
   proto,
+  type AuthenticationState,
 } from "@whiskeysockets/baileys";
 import { describe, expect, it, vi } from "vitest";
 
-import { BaileysConnector, classifyDisconnect, maskPhoneNumber } from "./baileys-connector.js";
+import {
+  BaileysConnector,
+  classifyDisconnect,
+  createSafeBaileysLogger,
+  maskPhoneNumber,
+} from "./baileys-connector.js";
+import { inspectBaileysAuthState } from "../auth/baileys-auth-state.js";
 import type { AuthStore } from "../auth/store.js";
 import type { GatewayLogger } from "./types.js";
 
@@ -59,7 +67,23 @@ describe("Baileys disconnect classification", () => {
     expect(maskPhoneNumber("1234")).toBeUndefined();
   });
 
-  it("always persists credential update events through the auth store", async () => {
+  it("drops raw Baileys bindings and messages before they reach application logs", () => {
+    const output: string[] = [];
+    const write = (bindings: Record<string, unknown>, message?: string) => {
+      output.push(JSON.stringify({ bindings, message }));
+    };
+    const logger: GatewayLogger = { debug: write, info: write, warn: write, error: write };
+    const safeLogger = createSafeBaileysLogger(logger);
+    const secret = "628123456789@s.whatsapp.net";
+
+    safeLogger.info({ me: { id: secret }, creds: secret }, `paired ${secret}`);
+    safeLogger.child({ session: secret }).warn({ error: secret }, secret);
+
+    expect(output.join("\n")).toContain("wa.baileys.info");
+    expect(output.join("\n")).not.toContain(secret);
+  });
+
+  it("persists manual-login credentials that startup classifies as registered", async () => {
     const values = new Map<string, unknown>();
     const store: AuthStore = {
       async read<T>(key: string) {
@@ -92,20 +116,35 @@ describe("Baileys disconnect classification", () => {
       logout,
       sendMessage,
     };
-    const connector = new BaileysConnector(store, logger, (() => socket) as never);
+    let socketAuth: AuthenticationState | undefined;
+    const socketFactory = vi.fn((options: { auth: AuthenticationState }) => {
+      socketAuth = options.auth;
+      return socket;
+    });
+    const connector = new BaileysConnector(store, logger, socketFactory as never);
     const onOpen = vi.fn();
 
     const gatewaySocket = await connector.open(
       { onQr: noop, onOpen, onClose: noop },
       { allowQr: true },
     );
+    socketAuth!.creds.me = { id: "628123456789:1@s.whatsapp.net", name: "Owner" };
+    socketAuth!.creds.registered = false;
+    await socketAuth!.keys.set({ session: { existing: new Uint8Array([1, 2, 3]) } });
     handlers.get("creds.update")!();
     handlers.get("connection.update")!({ connection: "open" });
 
     await vi.waitFor(() => {
       expect(values.has("baileys:account:default:credentials")).toBe(true);
+      expect(onOpen).toHaveBeenCalledWith("62812****789");
     });
-    expect(onOpen).toHaveBeenCalledWith("62812****789");
+    expect(await inspectBaileysAuthState(store)).toMatchObject({
+      classification: "registered",
+      hasCreds: true,
+      hasMe: true,
+      registeredFlag: false,
+      hasKeys: true,
+    });
     expect(sendMessage).not.toHaveBeenCalled();
 
     await gatewaySocket.close();
@@ -115,8 +154,11 @@ describe("Baileys disconnect classification", () => {
   });
 
   it("clears invalid auth data on logout without reconnecting or sending", async () => {
+    const credentials = initAuthCreds();
+    credentials.me = { id: "628123456789:1@s.whatsapp.net", name: "Owner" };
+    credentials.registered = true;
     const values = new Map<string, unknown>([
-      ["baileys:account:default:credentials", { registered: true }],
+      ["baileys:account:default:credentials", credentials],
       ["baileys:account:default:key:session:one", { key: "encrypted-by-adapter" }],
     ]);
     const store: AuthStore = {
@@ -290,6 +332,50 @@ describe("Baileys disconnect classification", () => {
     expect(onClose).not.toHaveBeenCalled();
     finishWrite!();
     await vi.waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(store.flush).toHaveBeenCalledOnce();
+  });
+
+  it("persists the latest credentials before reporting the socket as connected", async () => {
+    let finishWrite: (() => void) | undefined;
+    const writeFinished = new Promise<void>((resolve) => {
+      finishWrite = resolve;
+    });
+    const store: AuthStore = {
+      read: vi.fn(async () => undefined),
+      write: vi.fn(() => writeFinished),
+      delete: vi.fn(async () => undefined),
+      list: vi.fn(async () => []),
+      flush: vi.fn(async () => undefined),
+    };
+    const noop = () => undefined;
+    const logger: GatewayLogger = { debug: noop, info: noop, warn: noop, error: noop };
+    const handlers = new Map<string, (update?: Record<string, unknown>) => void>();
+    let socketAuth: AuthenticationState | undefined;
+    const socket = {
+      user: { id: "628123456789@s.whatsapp.net" },
+      ev: {
+        on(event: string, handler: (update?: Record<string, unknown>) => void) {
+          handlers.set(event, handler);
+        },
+      },
+      end: vi.fn(async () => undefined),
+    };
+    const socketFactory = vi.fn((options: { auth: AuthenticationState }) => {
+      socketAuth = options.auth;
+      return socket;
+    });
+    const onOpen = vi.fn();
+    const connector = new BaileysConnector(store, logger, socketFactory as never);
+    await connector.open({ onQr: noop, onOpen, onClose: noop }, { allowQr: true });
+    socketAuth!.creds.me = { id: "628123456789:1@s.whatsapp.net", name: "Owner" };
+    socketAuth!.creds.registered = false;
+
+    handlers.get("connection.update")!({ connection: "open" });
+    await Promise.resolve();
+    expect(onOpen).not.toHaveBeenCalled();
+
+    finishWrite!();
+    await vi.waitFor(() => expect(onOpen).toHaveBeenCalledWith("62812****789"));
     expect(store.flush).toHaveBeenCalledOnce();
   });
 

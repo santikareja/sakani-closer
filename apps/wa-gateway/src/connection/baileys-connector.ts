@@ -96,6 +96,29 @@ function getMaskedSocketIdentity(socket: {
   return maskPhoneNumber(jidDecode(socket.user?.id ?? "")?.user);
 }
 
+interface SafeBaileysLogger {
+  level: string;
+  child(bindings: Record<string, unknown>): SafeBaileysLogger;
+  trace(bindings: unknown, message?: string): void;
+  debug(bindings: unknown, message?: string): void;
+  info(bindings: unknown, message?: string): void;
+  warn(bindings: unknown, message?: string): void;
+  error(bindings: unknown, message?: string): void;
+}
+
+export function createSafeBaileysLogger(logger: GatewayLogger): SafeBaileysLogger {
+  const safeLogger: SafeBaileysLogger = {
+    level: "info",
+    child: () => safeLogger,
+    trace: () => logger.debug({ event: "wa.baileys.trace" }, "Diagnostic internal Baileys"),
+    debug: () => logger.debug({ event: "wa.baileys.debug" }, "Diagnostic internal Baileys"),
+    info: () => logger.info({ event: "wa.baileys.info" }, "Diagnostic internal Baileys"),
+    warn: () => logger.warn({ event: "wa.baileys.warn" }, "Diagnostic internal Baileys"),
+    error: () => logger.error({ event: "wa.baileys.error" }, "Diagnostic internal Baileys"),
+  };
+  return safeLogger;
+}
+
 export class BaileysConnector implements GatewayConnector {
   constructor(
     private readonly authStore: AuthStore,
@@ -113,7 +136,7 @@ export class BaileysConnector implements GatewayConnector {
 
     const socket = this.socketFactory({
       auth: auth.state,
-      logger: this.logger as never,
+      logger: createSafeBaileysLogger(this.logger),
       markOnlineOnConnect: false,
       syncFullHistory: false,
       enableRecentMessageCache: false,
@@ -122,26 +145,27 @@ export class BaileysConnector implements GatewayConnector {
     });
 
     let closed = false;
+    let openReported = false;
     let pendingCredentialWrites = Promise.resolve();
+    const queueCredentialWrite = () => {
+      const write = pendingCredentialWrites.catch(() => undefined).then(auth.saveCreds);
+      pendingCredentialWrites = write;
+      return write;
+    };
     const flushCredentialWrites = async () => {
-      await pendingCredentialWrites.catch(() => undefined);
+      await pendingCredentialWrites;
       await this.authStore.flush();
+    };
+    const reportPersistenceFailure = () => {
+      if (closed) return;
+      closed = true;
+      this.logger.error({ event: "wa.auth.persist_failed" }, "Gagal menyimpan kredensial WhatsApp");
+      callbacks.onClose({ kind: "auth_error", reason: "auth_persistence_failed" });
+      void socket.end(new Error("auth_persistence_failed"));
     };
     socket.ev.on("creds.update", () => {
       if (closed) return;
-      const write = pendingCredentialWrites.catch(() => undefined).then(auth.saveCreds);
-      pendingCredentialWrites = write;
-      void write.catch(() => {
-        this.logger.error(
-          { event: "wa.auth.persist_failed" },
-          "Gagal menyimpan kredensial WhatsApp",
-        );
-        if (!closed) {
-          closed = true;
-          callbacks.onClose({ kind: "auth_error", reason: "auth_persistence_failed" });
-          void socket.end(new Error("auth_persistence_failed"));
-        }
-      });
+      void queueCredentialWrite().catch(reportPersistenceFailure);
     });
 
     socket.ev.on("connection.update", (update) => {
@@ -152,7 +176,15 @@ export class BaileysConnector implements GatewayConnector {
         void socket.end(new Error("unexpected_qr_for_registered_session"));
         return;
       }
-      if (update.connection === "open") callbacks.onOpen(getMaskedSocketIdentity(socket));
+      if (update.connection === "open" && !closed && !openReported) {
+        openReported = true;
+        void queueCredentialWrite()
+          .then(flushCredentialWrites)
+          .then(() => {
+            if (!closed) callbacks.onOpen(getMaskedSocketIdentity(socket));
+          })
+          .catch(reportPersistenceFailure);
+      }
       if (update.connection === "close" && !closed) {
         closed = true;
         const diagnostic = classifyDisconnect(update.lastDisconnect?.error);

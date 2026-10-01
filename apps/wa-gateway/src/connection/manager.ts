@@ -1,5 +1,6 @@
 import { ConnectorAuthenticationError } from "./baileys-connector.js";
 import type { ConnectionStateMachine } from "./state-machine.js";
+import type { AuthStateClassification } from "../auth/baileys-auth-state.js";
 import type {
   ConnectionSnapshot,
   ConnectionStatus,
@@ -41,6 +42,7 @@ export class ConnectionManager {
   private connectPromise: Promise<ConnectionSnapshot> | undefined;
   private phoneNumberMasked: string | undefined;
   private allowQrForCurrentLifecycle = true;
+  private authStateClassification: AuthStateClassification = "missing";
   private intentWrite = Promise.resolve();
 
   constructor(
@@ -65,6 +67,10 @@ export class ConnectionManager {
     return snapshot.state === "connected" && this.phoneNumberMasked
       ? { ...snapshot, phoneNumberMasked: this.phoneNumberMasked }
       : snapshot;
+  }
+
+  setAuthStateClassification(classification: AuthStateClassification): void {
+    this.authStateClassification = classification;
   }
 
   connect(): Promise<ConnectionSnapshot> {
@@ -95,6 +101,7 @@ export class ConnectionManager {
   }
 
   authenticationFailedAtStartup(): ConnectionSnapshot {
+    this.authStateClassification = "corrupt";
     if (this.stateMachine.getSnapshot().state !== "disconnected") return this.getStatus();
     return this.stateMachine.transition("auth_error", "authentication_failed");
   }
@@ -214,6 +221,7 @@ export class ConnectionManager {
     } catch (error) {
       if (generation !== this.generation) return this.getStatus();
       if (error instanceof ConnectorAuthenticationError) {
+        this.authStateClassification = "corrupt";
         await this.persistAutoReconnectIntent(false, "invalid_auth");
         return this.stateMachine.transition("auth_error", "authentication_failed");
       }
@@ -240,6 +248,7 @@ export class ConnectionManager {
   private onUnexpectedQr(generation: number): void {
     if (generation !== this.generation) return;
     this.generation += 1;
+    this.authStateClassification = "logged_out";
     this.qrManager.clear();
     const socket = this.socket;
     this.socket = undefined;
@@ -264,8 +273,12 @@ export class ConnectionManager {
     }
     this.qrManager.clear();
     this.phoneNumberMasked = phoneNumberMasked;
+    this.authStateClassification = "registered";
     this.stateMachine.transition("connected", "connection_opened");
-    this.logger.info({ event: "wa.connection.open" }, "Koneksi WhatsApp terbuka");
+    this.logger.info(
+      { event: "wa.connection.open", authStateClassification: "registered" },
+      "Koneksi WhatsApp terbuka",
+    );
   }
 
   private onClose(generation: number, diagnostic: DisconnectDiagnostic): void {
@@ -276,12 +289,14 @@ export class ConnectionManager {
     this.phoneNumberMasked = undefined;
 
     if (diagnostic.kind === "logged_out") {
+      this.authStateClassification = "logged_out";
       void this.persistAutoReconnectIntent(false, "logged_out");
       this.stateMachine.transition("logged_out", "logout_detected");
       this.logClose(diagnostic, false, this.retryAttempt);
       return;
     }
     if (diagnostic.kind === "auth_error") {
+      this.authStateClassification = "logged_out";
       void this.persistAutoReconnectIntent(false, "invalid_auth");
       this.stateMachine.transition("auth_error", "authentication_failed");
       this.logClose(diagnostic, false, this.retryAttempt);
@@ -353,6 +368,7 @@ export class ConnectionManager {
     this.logger.warn(
       {
         event: "wa.connection.closed",
+        authStateClassification: this.authStateClassification,
         normalizedReason: diagnostic.reason,
         statusCode: diagnostic.statusCode ?? null,
         shouldReconnect,

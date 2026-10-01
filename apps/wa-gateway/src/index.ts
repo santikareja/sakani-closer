@@ -135,13 +135,18 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<G
   let authInspection: BaileysAuthStateInspection;
   try {
     authInspection = await inspectBaileysAuthState(authStore);
-    autoReconnect = authInspection.authState === "present" && authInspection.autoReconnect;
-    if (authInspection.authState === "invalid") {
+    manager.setAuthStateClassification(authInspection.classification);
+    autoReconnect = authInspection.classification === "registered" && authInspection.autoReconnect;
+    if (authInspection.classification === "corrupt") {
       manager.authenticationFailedAtStartup();
       logger.error(
         {
           event: "wa.auth.startup_load_failed",
-          authState: authInspection.authState,
+          authStateClassification: authInspection.classification,
+          hasCreds: authInspection.hasCreds,
+          hasMe: authInspection.hasMe,
+          registeredFlag: authInspection.registeredFlag,
+          hasKeys: authInspection.hasKeys,
           authDirectory: config.authDataDirectory,
           state: manager.getStatus().state,
           reason: authInspection.reason,
@@ -153,15 +158,22 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<G
   } catch {
     manager.authenticationFailedAtStartup();
     authInspection = {
-      authState: "invalid",
-      registered: false,
+      classification: "corrupt",
+      hasCreds: false,
+      hasMe: false,
+      registeredFlag: false,
+      hasKeys: false,
       autoReconnect: false,
-      reason: "invalid_auth",
+      reason: "corrupt_auth_state",
     };
     logger.error(
       {
         event: "wa.auth.startup_load_failed",
-        authState: "invalid",
+        authStateClassification: "corrupt",
+        hasCreds: false,
+        hasMe: false,
+        registeredFlag: false,
+        hasKeys: false,
         authDirectory: config.authDataDirectory,
         state: manager.getStatus().state,
         reason: "integrity_validation_failed",
@@ -175,14 +187,18 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<G
       event: "wa.gateway.started",
       port: config.port,
       autoReconnect,
-      authState: authInspection.authState,
+      authStateClassification: authInspection.classification,
+      hasCreds: authInspection.hasCreds,
+      hasMe: authInspection.hasMe,
+      registeredFlag: authInspection.registeredFlag,
+      hasKeys: authInspection.hasKeys,
       authDirectory: config.authDataDirectory,
       state: startupState,
       reason: authInspection.reason,
     },
     autoReconnect
       ? "Gateway WhatsApp memulai reconnect session tersimpan"
-      : authInspection.authState === "present"
+      : authInspection.classification === "registered"
         ? "Gateway WhatsApp siap dengan reconnect session dinonaktifkan"
         : "Gateway WhatsApp siap tanpa session yang dapat dipulihkan",
   );

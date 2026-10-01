@@ -1,5 +1,6 @@
 import {
   initAuthCreds,
+  jidDecode,
   proto,
   type AuthenticationCreds,
   type AuthenticationState,
@@ -23,9 +24,39 @@ function connectionIntentKey(accountId: string): string {
   return `${accountPrefix(accountId)}:connection-intent`;
 }
 
-const registeredCredentialsSchema = z.object({
-  registered: z.literal(true),
+const nonEmptyBytesSchema = z.custom<Uint8Array>(
+  (value) => value instanceof Uint8Array && value.byteLength > 0,
+);
+
+const keyPairSchema = z.object({
+  public: nonEmptyBytesSchema,
+  private: nonEmptyBytesSchema,
 });
+
+const authenticationCredentialsSchema = z.object({
+  noiseKey: keyPairSchema,
+  pairingEphemeralKeyPair: keyPairSchema.optional(),
+  signedIdentityKey: keyPairSchema,
+  signedPreKey: z.object({
+    keyPair: keyPairSchema,
+    signature: nonEmptyBytesSchema,
+    keyId: z.number().int().nonnegative(),
+  }),
+  registrationId: z.number().int().nonnegative(),
+  advSecretKey: z.string().min(1),
+  registered: z.boolean().optional(),
+  me: z.object({ id: z.string().min(1) }).optional(),
+});
+
+export const authStateClassifications = [
+  "missing",
+  "corrupt",
+  "unregistered",
+  "registered",
+  "logged_out",
+] as const;
+
+export type AuthStateClassification = (typeof authStateClassifications)[number];
 
 export const reconnectPolicyReasons = [
   "active",
@@ -38,18 +69,62 @@ export const reconnectPolicyReasons = [
 export type ReconnectPolicyReason = (typeof reconnectPolicyReasons)[number];
 
 export interface BaileysAuthStateInspection {
-  authState: "absent" | "unregistered" | "present" | "invalid";
-  registered: boolean;
+  classification: AuthStateClassification;
+  hasCreds: boolean;
+  hasMe: boolean;
+  registeredFlag: boolean;
+  hasKeys: boolean;
   autoReconnect: boolean;
-  reason: ReconnectPolicyReason | "no_auth_state" | "unregistered_auth_state" | "legacy_disabled";
+  reason:
+    | ReconnectPolicyReason
+    | "missing_auth_state"
+    | "corrupt_auth_state"
+    | "unregistered_auth_state"
+    | "registered_auth_state"
+    | "legacy_disabled";
+}
+
+export function classifyBaileysAuthState(
+  credentials: unknown,
+  hasKeys: boolean,
+): Omit<BaileysAuthStateInspection, "autoReconnect" | "reason"> {
+  if (credentials === undefined) {
+    return {
+      classification: "missing",
+      hasCreds: false,
+      hasMe: false,
+      registeredFlag: false,
+      hasKeys,
+    };
+  }
+
+  const parsed = authenticationCredentialsSchema.safeParse(credentials);
+  if (!parsed.success) {
+    return {
+      classification: "corrupt",
+      hasCreds: true,
+      hasMe: false,
+      registeredFlag: false,
+      hasKeys,
+    };
+  }
+
+  const decodedMe = parsed.data.me ? jidDecode(parsed.data.me.id) : undefined;
+  const hasMe = Boolean(decodedMe?.user && decodedMe.server);
+  return {
+    classification: hasMe ? "registered" : "unregistered",
+    hasCreds: true,
+    hasMe,
+    registeredFlag: parsed.data.registered ?? false,
+    hasKeys,
+  };
 }
 
 export async function hasRegisteredBaileysSession(
   store: AuthStore,
   accountId = "default",
 ): Promise<boolean> {
-  const credentials = await store.read<unknown>(credentialsKey(accountId));
-  return registeredCredentialsSchema.safeParse(credentials).success;
+  return (await inspectBaileysAuthState(store, accountId)).classification === "registered";
 }
 
 const connectionIntentSchema = z.object({
@@ -61,44 +136,68 @@ export async function inspectBaileysAuthState(
   store: AuthStore,
   accountId = "default",
 ): Promise<BaileysAuthStateInspection> {
-  const [credentials, storedIntent] = await Promise.all([
-    store.read<unknown>(credentialsKey(accountId)),
-    store.read<unknown>(connectionIntentKey(accountId)),
-  ]);
-  const parsedIntent =
-    storedIntent === undefined ? undefined : connectionIntentSchema.parse(storedIntent);
-
-  if (credentials === undefined) {
-    const reason = parsedIntent?.reason;
+  let credentials: unknown;
+  let storedIntent: unknown;
+  let hasKeys: boolean;
+  try {
+    [credentials, storedIntent, hasKeys] = await Promise.all([
+      store.read<unknown>(credentialsKey(accountId)),
+      store.read<unknown>(connectionIntentKey(accountId)),
+      store.list(`${accountPrefix(accountId)}:key:`).then((keys) => keys.length > 0),
+    ]);
+  } catch {
     return {
-      authState: "absent",
-      registered: false,
+      classification: "corrupt",
+      hasCreds: false,
+      hasMe: false,
+      registeredFlag: false,
+      hasKeys: false,
       autoReconnect: false,
-      reason: reason === "explicit_reset" || reason === "logged_out" ? reason : "no_auth_state",
+      reason: "corrupt_auth_state",
     };
   }
 
-  const parsedCredentials = registeredCredentialsSchema.safeParse(credentials);
-  if (!parsedCredentials.success) {
-    const isUnregistered =
-      typeof credentials === "object" &&
-      credentials !== null &&
-      "registered" in credentials &&
-      credentials.registered === false;
+  const parsedIntent = connectionIntentSchema.safeParse(storedIntent);
+  if (storedIntent !== undefined && !parsedIntent.success) {
     return {
-      authState: isUnregistered ? "unregistered" : "invalid",
-      registered: false,
+      ...classifyBaileysAuthState(credentials, hasKeys),
+      classification: "corrupt",
       autoReconnect: false,
-      reason: isUnregistered ? "unregistered_auth_state" : "invalid_auth",
+      reason: "corrupt_auth_state",
     };
   }
 
-  const autoReconnect = parsedIntent?.autoReconnect !== false;
+  const intent = parsedIntent.success ? parsedIntent.data : undefined;
+  const diagnostics = classifyBaileysAuthState(credentials, hasKeys);
+  const rejectedByWhatsApp = intent?.reason === "logged_out" || intent?.reason === "invalid_auth";
+  const classification: AuthStateClassification = rejectedByWhatsApp
+    ? "logged_out"
+    : diagnostics.classification;
+  const autoReconnect = classification === "registered" && intent?.autoReconnect !== false;
+  const defaultReason =
+    classification === "missing"
+      ? "missing_auth_state"
+      : classification === "corrupt"
+        ? "corrupt_auth_state"
+        : classification === "unregistered"
+          ? "unregistered_auth_state"
+          : classification === "logged_out"
+            ? "logged_out"
+            : "registered_auth_state";
+  const reason =
+    classification === "corrupt"
+      ? "corrupt_auth_state"
+      : classification === "registered"
+        ? (intent?.reason ??
+          (intent?.autoReconnect === false ? "legacy_disabled" : "registered_auth_state"))
+        : intent?.reason === "explicit_reset" || intent?.reason === "logged_out"
+          ? intent.reason
+          : defaultReason;
   return {
-    authState: "present",
-    registered: true,
+    ...diagnostics,
+    classification,
     autoReconnect,
-    reason: parsedIntent?.reason ?? (autoReconnect ? "active" : "legacy_disabled"),
+    reason,
   };
 }
 
@@ -130,7 +229,14 @@ export async function createBaileysAuthState(
   const prefix = accountPrefix(accountId);
   const accountCredentialsKey = credentialsKey(accountId);
   const signalKey = (type: keyof SignalDataTypeMap, id: string) => `${prefix}:key:${type}:${id}`;
-  const creds = (await store.read<AuthenticationCreds>(accountCredentialsKey)) ?? initAuthCreds();
+  const storedCredentials = await store.read<unknown>(accountCredentialsKey);
+  const hasKeys = (await store.list(`${prefix}:key:`)).length > 0;
+  const classification = classifyBaileysAuthState(storedCredentials, hasKeys);
+  if (classification.classification === "corrupt") {
+    throw new TypeError("Stored WhatsApp authentication state is invalid");
+  }
+  const creds =
+    storedCredentials === undefined ? initAuthCreds() : (storedCredentials as AuthenticationCreds);
 
   const state: AuthenticationState = {
     creds,

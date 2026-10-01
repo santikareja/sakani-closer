@@ -139,7 +139,7 @@ describe("ConnectionManager", () => {
   it("does not reconnect logged-out or authentication-failed sessions", async () => {
     vi.useFakeTimers();
     const connector = new FakeConnector();
-    const { logger } = createLogger();
+    const { logger, output } = createLogger();
     const manager = new ConnectionManager(
       connector,
       new ConnectionStateMachine(),
@@ -152,6 +152,7 @@ describe("ConnectionManager", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(manager.getStatus().state).toBe("logged_out");
     expect(connector.openCount).toBe(1);
+    expect(output.join("\n")).toContain('"authStateClassification":"logged_out"');
 
     await manager.connect();
     connector.callbacks[1]!.onClose(badSessionClose);
@@ -379,6 +380,7 @@ describe("ConnectionManager", () => {
     );
     const secret = "session-key-material-must-not-be-logged";
 
+    manager.setAuthStateClassification("registered");
     await manager.connect();
     connector.callbacks[0]!.onClose(
       classifyDisconnect({
@@ -390,6 +392,7 @@ describe("ConnectionManager", () => {
 
     const serialized = output.join("\n");
     expect(serialized).toContain('"normalizedReason":"restart_required"');
+    expect(serialized).toContain('"authStateClassification":"registered"');
     expect(serialized).not.toContain(secret);
     await manager.disconnect();
     vi.useRealTimers();

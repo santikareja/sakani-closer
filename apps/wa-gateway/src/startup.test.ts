@@ -92,8 +92,10 @@ describe("WhatsApp gateway startup", () => {
     const authStore = new EncryptedFileAuthStore(authDataDirectory, encryptionSecret);
     if (hasRegisteredSession) {
       const auth = await createBaileysAuthState(authStore);
-      auth.state.creds.registered = true;
+      auth.state.creds.me = { id: "628123456789:1@s.whatsapp.net", name: "Owner" };
+      auth.state.creds.registered = false;
       await auth.saveCreds();
+      await auth.state.keys.set({ session: { existing: new Uint8Array([1, 2, 3]) } });
     }
     if (autoReconnectIntent !== undefined) {
       await writeBaileysAutoReconnectIntent(authStore, autoReconnectIntent);
@@ -169,8 +171,8 @@ describe("WhatsApp gateway startup", () => {
     expect(connector.open).not.toHaveBeenCalled();
   });
 
-  it("reconnects automatically when encrypted registered credentials exist", async () => {
-    const { connector, runtime } = await startValidRuntime(true);
+  it("reconnects automatically when reusable credentials have me but registered is false", async () => {
+    const { connector, entries, runtime } = await startValidRuntime(true);
 
     expect(connector.open).toHaveBeenCalledOnce();
     expect(connector.options).toEqual({ allowQr: false });
@@ -178,6 +180,19 @@ describe("WhatsApp gateway startup", () => {
       state: "connecting",
       reason: "service_started",
     });
+    expect(entries).toContainEqual(
+      expect.objectContaining({
+        bindings: expect.objectContaining({
+          event: "wa.gateway.started",
+          autoReconnect: true,
+          authStateClassification: "registered",
+          hasCreds: true,
+          hasMe: true,
+          registeredFlag: false,
+          hasKeys: true,
+        }),
+      }),
+    );
 
     connector.callbacks!.onOpen("62812****789");
     expect(runtime.manager.getStatus()).toMatchObject({
@@ -198,7 +213,7 @@ describe("WhatsApp gateway startup", () => {
       expect.objectContaining({
         bindings: expect.objectContaining({
           event: "wa.gateway.started",
-          authState: "present",
+          authStateClassification: "registered",
           autoReconnect: false,
           reason: "explicit_disconnect",
         }),
@@ -206,35 +221,56 @@ describe("WhatsApp gateway startup", () => {
     );
   });
 
-  it("distinguishes absent, logged-out, explicit-reset, and invalid auth state", async () => {
+  it("distinguishes missing, unregistered, registered, logged-out, reset, and corrupt state", async () => {
     const authDataDirectory = await mkdtemp(path.join(tmpdir(), "sakani-wa-inspection-test-"));
     temporaryDirectories.push(authDataDirectory);
     const store = new EncryptedFileAuthStore(authDataDirectory, encryptionSecret);
 
     await expect(inspectBaileysAuthState(store)).resolves.toMatchObject({
-      authState: "absent",
-      reason: "no_auth_state",
+      classification: "missing",
+      reason: "missing_auth_state",
     });
-    await store.write("baileys:account:default:credentials", { registered: false });
+    const auth = await createBaileysAuthState(store);
+    await auth.saveCreds();
     await expect(inspectBaileysAuthState(store)).resolves.toMatchObject({
-      authState: "unregistered",
+      classification: "unregistered",
+      hasCreds: true,
+      hasMe: false,
+      registeredFlag: false,
       reason: "unregistered_auth_state",
+    });
+    auth.state.creds.registered = true;
+    await auth.saveCreds();
+    await expect(inspectBaileysAuthState(store)).resolves.toMatchObject({
+      classification: "unregistered",
+      hasMe: false,
+      registeredFlag: true,
+    });
+    auth.state.creds.me = { id: "628123456789:1@s.whatsapp.net", name: "Owner" };
+    auth.state.creds.registered = false;
+    await auth.saveCreds();
+    await expect(inspectBaileysAuthState(store)).resolves.toMatchObject({
+      classification: "registered",
+      hasMe: true,
+      registeredFlag: false,
+      hasKeys: false,
+      autoReconnect: true,
     });
     await store.delete("baileys:account:default:credentials");
     await writeBaileysAutoReconnectIntent(store, false, "default", "logged_out");
     await expect(inspectBaileysAuthState(store)).resolves.toMatchObject({
-      authState: "absent",
+      classification: "logged_out",
       reason: "logged_out",
     });
     await writeBaileysAutoReconnectIntent(store, false, "default", "explicit_reset");
     await expect(inspectBaileysAuthState(store)).resolves.toMatchObject({
-      authState: "absent",
+      classification: "missing",
       reason: "explicit_reset",
     });
     await store.write("baileys:account:default:credentials", { registered: "invalid" });
     await expect(inspectBaileysAuthState(store)).resolves.toMatchObject({
-      authState: "invalid",
-      reason: "invalid_auth",
+      classification: "corrupt",
+      reason: "corrupt_auth_state",
     });
   });
 
@@ -254,9 +290,32 @@ describe("WhatsApp gateway startup", () => {
     expect(runtime.manager.getStatus().state).toBe("auth_error");
     expect(connector.open).not.toHaveBeenCalled();
     const serialized = JSON.stringify(entries);
-    expect(serialized).toContain('"authState":"invalid"');
+    expect(serialized).toContain('"authStateClassification":"corrupt"');
     expect(serialized).not.toContain(encryptionSecret);
     expect(serialized).not.toContain(internalToken);
+  });
+
+  it("classifies undecryptable auth state as corrupt without a reconnect loop", async () => {
+    const authDataDirectory = await mkdtemp(path.join(tmpdir(), "sakani-wa-corrupt-test-"));
+    temporaryDirectories.push(authDataDirectory);
+    const writer = new EncryptedFileAuthStore(authDataDirectory, encryptionSecret);
+    const auth = await createBaileysAuthState(writer);
+    auth.state.creds.me = { id: "628123456789:1@s.whatsapp.net", name: "Owner" };
+    await auth.saveCreds();
+
+    const wrongEncryptionSecret = "different-encryption-material-".padEnd(64, "x");
+    const unreadableStore = new EncryptedFileAuthStore(authDataDirectory, wrongEncryptionSecret);
+    const parsedConfig = loadGatewayConfig(validGatewayEnvironment);
+    const config: GatewayConfig = { ...parsedConfig, port: 0, authDataDirectory };
+    const connector = createConnector();
+    const { logger, entries } = createCapturedLogger();
+    const runtime = await startGateway({ config, connector, logger, authStore: unreadableStore });
+    runtimes.push(runtime);
+
+    expect(runtime.manager.getStatus().state).toBe("auth_error");
+    expect(connector.open).not.toHaveBeenCalled();
+    expect(JSON.stringify(entries)).toContain('"authStateClassification":"corrupt"');
+    expect(JSON.stringify(entries)).not.toContain(wrongEncryptionSecret);
   });
 
   it("persists explicit disconnect without deleting registered credentials", async () => {
@@ -267,7 +326,8 @@ describe("WhatsApp gateway startup", () => {
 
     expect(await readBaileysAutoReconnectIntent(authStore)).toBe(false);
     const restored = await createBaileysAuthState(authStore);
-    expect(restored.state.creds.registered).toBe(true);
+    expect(restored.state.creds.me?.id).toBe("628123456789:1@s.whatsapp.net");
+    expect((await inspectBaileysAuthState(authStore)).classification).toBe("registered");
 
     await runtime.manager.connect();
     expect(await readBaileysAutoReconnectIntent(authStore)).toBe(true);
