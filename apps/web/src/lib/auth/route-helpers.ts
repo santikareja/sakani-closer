@@ -1,4 +1,4 @@
-import { getServerEnv } from "@sakani/config";
+import { getWebEnv } from "@sakani/config";
 import { NextResponse } from "next/server";
 
 import { getSessionCookieOptions, SESSION_COOKIE_NAME, shouldUseSecureCookie } from "./cookie";
@@ -10,7 +10,7 @@ export function createAuthenticatedRedirect(
   destination: string,
   session: SessionMaterial,
 ): NextResponse {
-  const env = getServerEnv();
+  const env = getWebEnv();
   const response = NextResponse.redirect(new URL(destination, applicationUrl), 303);
   const cookieValue = sealSessionCookie(
     {

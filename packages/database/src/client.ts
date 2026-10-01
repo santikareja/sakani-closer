@@ -1,4 +1,4 @@
-import { getServerEnv } from "@sakani/config";
+import { getDatabaseEnv } from "@sakani/config";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -20,7 +20,7 @@ export function createDatabasePool(connectionString: string): Pool {
 }
 
 export function getDatabasePool(): Pool {
-  pool ??= createDatabasePool(getServerEnv().DATABASE_URL);
+  pool ??= createDatabasePool(getDatabaseEnv().DATABASE_URL);
   return pool;
 }
 

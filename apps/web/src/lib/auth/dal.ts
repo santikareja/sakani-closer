@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getServerEnv } from "@sakani/config";
+import { getWebEnv } from "@sakani/config";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
@@ -13,7 +13,7 @@ import type { CurrentSession } from "./types";
 
 export const getCurrentSession = cache(async (): Promise<CurrentSession | null> => {
   const cookieStore = await cookies();
-  const env = getServerEnv();
+  const env = getWebEnv();
   return readCurrentSession(
     cookieStore.get(SESSION_COOKIE_NAME)?.value,
     env.AUTH_SECRET,

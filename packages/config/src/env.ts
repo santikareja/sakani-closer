@@ -14,38 +14,69 @@ const redisUrl = z
     message: "REDIS_URL must use the redis:// or rediss:// protocol",
   });
 
-export const serverEnvSchema = z.object({
+const runtimeModeShape = {
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   APP_ENV: z.enum(["local", "staging", "production", "test"]).default("local"),
-  APP_URL: z.string().url(),
+  LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
+};
+
+export const databaseEnvSchema = z.object({
   DATABASE_URL: postgresUrl,
+});
+
+export const webEnvSchema = databaseEnvSchema.extend({
+  ...runtimeModeShape,
+  APP_URL: z.string().url(),
   REDIS_URL: redisUrl,
   AUTH_SECRET: z.string().min(32),
   HEALTHCHECK_TIMEOUT_MS: z.coerce.number().int().min(100).max(10_000).default(1_500),
-  LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
 });
 
-export const laterPhaseEnvSchema = z.object({
+export const futureGatewayEnvSchema = z.object({
+  ...runtimeModeShape,
+  REDIS_URL: redisUrl,
   SESSION_ENCRYPTION_KEY: z.string().min(32),
+  INTERNAL_SERVICE_TOKEN: z.string().min(32),
+});
+
+export const futureWorkerEnvSchema = databaseEnvSchema.extend({
+  ...runtimeModeShape,
+  REDIS_URL: redisUrl,
   API_ENCRYPTION_KEY: z.string().min(32),
   INTERNAL_SERVICE_TOKEN: z.string().min(32),
   WA_GATEWAY_URL: z.string().url(),
+  AI_DEFAULT_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(30_000),
+  RAG_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.72),
+  FOLLOWUP_TIMEZONE: z.string().min(1).default("Asia/Jakarta"),
 });
 
-export type ServerEnv = z.infer<typeof serverEnvSchema>;
-export type LaterPhaseEnv = z.infer<typeof laterPhaseEnvSchema>;
+export type DatabaseEnv = z.infer<typeof databaseEnvSchema>;
+export type WebEnv = z.infer<typeof webEnvSchema>;
+export type FutureGatewayEnv = z.infer<typeof futureGatewayEnvSchema>;
+export type FutureWorkerEnv = z.infer<typeof futureWorkerEnvSchema>;
 
-let cachedEnv: ServerEnv | undefined;
+let cachedDatabaseEnv: DatabaseEnv | undefined;
+let cachedWebEnv: WebEnv | undefined;
 
-export function parseServerEnv(input: NodeJS.ProcessEnv | Record<string, unknown>): ServerEnv {
-  return serverEnvSchema.parse(input);
+export function parseDatabaseEnv(input: NodeJS.ProcessEnv | Record<string, unknown>): DatabaseEnv {
+  return databaseEnvSchema.parse(input);
 }
 
-export function getServerEnv(): ServerEnv {
-  cachedEnv ??= parseServerEnv(process.env);
-  return cachedEnv;
+export function parseWebEnv(input: NodeJS.ProcessEnv | Record<string, unknown>): WebEnv {
+  return webEnvSchema.parse(input);
 }
 
-export function resetServerEnvForTests(): void {
-  cachedEnv = undefined;
+export function getDatabaseEnv(): DatabaseEnv {
+  cachedDatabaseEnv ??= parseDatabaseEnv(process.env);
+  return cachedDatabaseEnv;
+}
+
+export function getWebEnv(): WebEnv {
+  cachedWebEnv ??= parseWebEnv(process.env);
+  return cachedWebEnv;
+}
+
+export function resetEnvForTests(): void {
+  cachedDatabaseEnv = undefined;
+  cachedWebEnv = undefined;
 }

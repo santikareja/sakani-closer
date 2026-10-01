@@ -37,7 +37,13 @@ describe("session cookie cryptography", () => {
 
   it("rejects a tampered cookie", () => {
     const cookie = sealSessionCookie(payload, secret);
-    const tampered = `${cookie.slice(0, -1)}${cookie.endsWith("a") ? "b" : "a"}`;
+    const parts = cookie.split(".");
+    const ciphertext = parts[2];
+    if (!ciphertext) {
+      throw new Error("Expected encrypted session cookie ciphertext");
+    }
+    parts[2] = `${ciphertext.startsWith("A") ? "B" : "A"}${ciphertext.slice(1)}`;
+    const tampered = parts.join(".");
 
     expect(openSessionCookie(tampered, secret)).toBeNull();
   });

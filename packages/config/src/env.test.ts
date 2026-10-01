@@ -1,33 +1,46 @@
 import { describe, expect, it } from "vitest";
 
-import { laterPhaseEnvSchema, parseServerEnv } from "./env";
+import {
+  futureGatewayEnvSchema,
+  futureWorkerEnvSchema,
+  parseDatabaseEnv,
+  parseWebEnv,
+} from "./env";
 
-const validEnv = {
+const databaseOnlyEnv = {
+  DATABASE_URL: "postgresql://user:password@localhost:5432/sakani",
+};
+
+const validWebEnv = {
+  ...databaseOnlyEnv,
   NODE_ENV: "test",
   APP_ENV: "test",
   APP_URL: "http://localhost:3000",
-  DATABASE_URL: "postgresql://user:password@localhost:5432/sakani",
   REDIS_URL: "redis://:password@localhost:6379",
   AUTH_SECRET: "test-auth-secret-at-least-32-characters-long",
 };
 
-describe("environment validation", () => {
-  it("parses the environment required by Phase 0", () => {
-    const env = parseServerEnv(validEnv);
+describe("service-specific environment validation", () => {
+  it("parses database and seed configuration without AUTH_SECRET", () => {
+    const env = parseDatabaseEnv(databaseOnlyEnv);
 
-    expect(env.APP_ENV).toBe("test");
-    expect(env.HEALTHCHECK_TIMEOUT_MS).toBe(1_500);
+    expect(env).toEqual(databaseOnlyEnv);
   });
 
-  it("rejects unsupported connection protocols", () => {
-    expect(() => parseServerEnv({ ...validEnv, DATABASE_URL: "https://example.com/db" })).toThrow(
+  it("rejects unsupported database connection protocols", () => {
+    expect(() => parseDatabaseEnv({ DATABASE_URL: "https://example.com/db" })).toThrow(
       "DATABASE_URL",
     );
   });
 
-  it("requires the Phase 1 authentication secret", () => {
-    expect(() => parseServerEnv(validEnv)).not.toThrow();
-    expect(() => parseServerEnv({ ...validEnv, AUTH_SECRET: "short" })).toThrow("AUTH_SECRET");
-    expect(laterPhaseEnvSchema.safeParse({}).success).toBe(false);
+  it("keeps AUTH_SECRET mandatory for the web authentication runtime", () => {
+    expect(() => parseWebEnv(validWebEnv)).not.toThrow();
+    expect(() => parseWebEnv({ ...validWebEnv, AUTH_SECRET: undefined })).toThrow("AUTH_SECRET");
+    expect(() => parseWebEnv({ ...validWebEnv, AUTH_SECRET: "short" })).toThrow("AUTH_SECRET");
+  });
+
+  it("keeps future gateway and worker contracts separate from current runtimes", () => {
+    expect(futureGatewayEnvSchema.safeParse({}).success).toBe(false);
+    expect(futureWorkerEnvSchema.safeParse({}).success).toBe(false);
   });
 });

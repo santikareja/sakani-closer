@@ -50,6 +50,8 @@ cp .env.example .env
 
 Edit `.env` before starting services. Replace the PostgreSQL password, Redis password, and `AUTH_SECRET` placeholders with independent, high-entropy URL-safe values. `AUTH_SECRET` must contain at least 32 characters and must not reuse another credential. Never commit `.env`.
 
+Environment validation is service-specific: migration and seed commands require only `DATABASE_URL`; the web runtime additionally requires `APP_URL`, `REDIS_URL`, and `AUTH_SECRET`. Future gateway and worker contracts are defined separately and are not validated by current database tools.
+
 PowerShell equivalent for the copy step:
 
 ```powershell

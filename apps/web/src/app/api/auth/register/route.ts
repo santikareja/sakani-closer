@@ -1,4 +1,4 @@
-import { getServerEnv } from "@sakani/config";
+import { getWebEnv } from "@sakani/config";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { getSafeRedirectPath, isSameOriginMutation } from "../../../../lib/auth/http";
@@ -13,7 +13,7 @@ import { createSafeErrorResponse } from "../../../../lib/safe-error";
 import { getRedisClient } from "../../../../lib/redis";
 
 export async function POST(request: NextRequest): Promise<Response> {
-  const env = getServerEnv();
+  const env = getWebEnv();
   if (!isSameOriginMutation(request, env.APP_URL)) {
     return NextResponse.json({ message: "Permintaan tidak valid." }, { status: 403 });
   }

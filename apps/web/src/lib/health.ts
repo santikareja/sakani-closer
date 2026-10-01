@@ -1,4 +1,4 @@
-import { getServerEnv, type ServerEnv } from "@sakani/config";
+import { getWebEnv, type WebEnv } from "@sakani/config";
 import { checkDatabaseConnection, getDatabasePool } from "@sakani/database";
 import type { ServiceStatus } from "@sakani/shared";
 import { NextResponse } from "next/server";
@@ -11,8 +11,8 @@ export interface HealthReport {
   database: ServiceStatus;
   redis: ServiceStatus;
   environment: {
-    app: ServerEnv["APP_ENV"];
-    node: ServerEnv["NODE_ENV"];
+    app: WebEnv["APP_ENV"];
+    node: WebEnv["NODE_ENV"];
   };
   timestamp: string;
 }
@@ -20,7 +20,7 @@ export interface HealthReport {
 export interface HealthDependencies {
   checkDatabase: () => Promise<void>;
   checkRedis: () => Promise<void>;
-  env: Pick<ServerEnv, "APP_ENV" | "NODE_ENV" | "HEALTHCHECK_TIMEOUT_MS">;
+  env: Pick<WebEnv, "APP_ENV" | "NODE_ENV" | "HEALTHCHECK_TIMEOUT_MS">;
   now?: () => Date;
 }
 
@@ -76,7 +76,7 @@ export function healthReportResponse(report: HealthReport): NextResponse<HealthR
 }
 
 export async function getLiveHealthReport(): Promise<HealthReport> {
-  const env = getServerEnv();
+  const env = getWebEnv();
   return createHealthReport({
     checkDatabase: () => checkDatabaseConnection(getDatabasePool()),
     checkRedis: () => checkRedisConnection(getRedisClient(env.REDIS_URL)),

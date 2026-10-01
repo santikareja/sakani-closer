@@ -107,11 +107,7 @@ services:
       dockerfile: apps/web/Dockerfile
       target: builder
     environment:
-      NODE_ENV: production
-      APP_ENV: production
-      APP_URL: ${APP_URL:-http://localhost:3000}
       DATABASE_URL: postgresql://${POSTGRES_USER:-sakani}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sakani_closer}
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
     command: ["pnpm", "db:seed"]
     depends_on:
       postgres:
