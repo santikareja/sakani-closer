@@ -87,6 +87,11 @@ export interface ConnectionIntentStore {
   ): Promise<void>;
 }
 
+export interface ConnectionLifecycleObserver {
+  connected(phoneNumberMasked?: string): void;
+  disconnected(): void;
+}
+
 export interface GatewayLogger {
   debug(bindings: Record<string, unknown>, message?: string): void;
   info(bindings: Record<string, unknown>, message?: string): void;

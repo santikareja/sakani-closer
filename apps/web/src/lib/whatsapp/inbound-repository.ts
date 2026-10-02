@@ -16,6 +16,23 @@ import { and, eq, sql } from "drizzle-orm";
 
 import { InboundAccountNotFoundError, type InboundRepository } from "./inbound-types";
 
+export function lifecycleUpdateValues(
+  event: {
+    state: "connected" | "disconnected";
+    phoneNumberMasked?: string | undefined;
+  },
+  now: Date,
+): Partial<typeof waAccounts.$inferInsert> {
+  return event.state === "connected"
+    ? {
+        status: "connected",
+        lastConnectedAt: now,
+        updatedAt: now,
+        ...(event.phoneNumberMasked ? { accountIdentifierMasked: event.phoneNumberMasked } : {}),
+      }
+    : { status: "disconnected", lastDisconnectedAt: now, updatedAt: now };
+}
+
 async function assertAccount(
   transaction: Parameters<Parameters<ReturnType<typeof getDatabase>["transaction"]>[0]>[0],
   context: WorkspaceContext,
@@ -55,6 +72,83 @@ export class DrizzleInboundRepository implements InboundRepository {
     return account;
   }
 
+  async getAccount(context: WorkspaceContext): Promise<{
+    id: string;
+    gatewayAccountId: string;
+    status: string;
+    phoneNumberMasked: string | null;
+    lastConnectedAt: Date | null;
+    lastDisconnectedAt: Date | null;
+    updatedAt: Date;
+  } | null> {
+    const [account] = await this.database
+      .select({
+        id: waAccounts.id,
+        gatewayAccountId: waAccounts.gatewayAccountId,
+        status: waAccounts.status,
+        phoneNumberMasked: waAccounts.accountIdentifierMasked,
+        lastConnectedAt: waAccounts.lastConnectedAt,
+        lastDisconnectedAt: waAccounts.lastDisconnectedAt,
+        updatedAt: waAccounts.updatedAt,
+      })
+      .from(waAccounts)
+      .where(
+        and(
+          eq(waAccounts.workspaceId, context.workspaceId),
+          eq(waAccounts.gatewayAccountId, DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID),
+        ),
+      )
+      .limit(1);
+    return account ?? null;
+  }
+
+  async markConnecting(context: WorkspaceContext, accountId: string): Promise<void> {
+    await this.updateAccountStatus(context, accountId, {
+      status: "connecting",
+      updatedAt: new Date(),
+    });
+  }
+
+  async markDisconnected(context: WorkspaceContext, accountId: string): Promise<void> {
+    const now = new Date();
+    await this.updateAccountStatus(context, accountId, {
+      status: "disconnected",
+      lastDisconnectedAt: now,
+      updatedAt: now,
+    });
+  }
+
+  async persistLifecycle(
+    context: WorkspaceContext,
+    accountId: string,
+    event: {
+      state: "connected" | "disconnected";
+      phoneNumberMasked?: string | undefined;
+    },
+  ): Promise<void> {
+    const now = new Date();
+    await this.updateAccountStatus(context, accountId, lifecycleUpdateValues(event, now));
+  }
+
+  private async updateAccountStatus(
+    context: WorkspaceContext,
+    accountId: string,
+    values: Partial<typeof waAccounts.$inferInsert>,
+  ): Promise<void> {
+    const updated = await this.database
+      .update(waAccounts)
+      .set(values)
+      .where(
+        and(
+          eq(waAccounts.workspaceId, context.workspaceId),
+          eq(waAccounts.id, accountId),
+          eq(waAccounts.gatewayAccountId, DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID),
+        ),
+      )
+      .returning({ id: waAccounts.id });
+    if (updated.length === 0) throw new InboundAccountNotFoundError();
+  }
+
   async ingestAccepted(
     context: WorkspaceContext,
     accountId: string,
@@ -64,11 +158,6 @@ export class DrizzleInboundRepository implements InboundRepository {
       await assertAccount(transaction, context, accountId);
       const now = new Date();
       const providerTimestamp = new Date(message.providerTimestamp);
-
-      await transaction
-        .update(waAccounts)
-        .set({ status: "connected", lastConnectedAt: now, updatedAt: now })
-        .where(and(eq(waAccounts.workspaceId, context.workspaceId), eq(waAccounts.id, accountId)));
 
       const [contact] = await transaction
         .insert(contacts)

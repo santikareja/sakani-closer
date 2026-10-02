@@ -11,34 +11,39 @@ export const connectionStateSchema = z.enum([
   "stopping",
 ]);
 
-export const connectionReasonSchema = z.enum([
-  "service_started",
-  "connect_requested",
-  "qr_received",
-  "connection_opened",
-  "explicit_disconnect",
-  "logout_detected",
-  "authentication_failed",
-  "connection_interrupted",
-  "retry_started",
-  "retry_exhausted",
-  "shutdown_requested",
-  "shutdown_complete",
-]);
+export const historyStatusSchema = z
+  .object({
+    capability: z.enum(["available", "limited", "unavailable"]),
+    progress: z.number().min(0).max(100).optional(),
+    isLatest: z.boolean().optional(),
+    syncType: z.string().max(64).optional(),
+    updatedAt: z.string().datetime().optional(),
+  })
+  .strict();
 
-export const connectionStatusSchema = z.object({
-  state: connectionStateSchema,
-  reason: connectionReasonSchema,
-  updatedAt: z.string().datetime(),
-  phoneNumberMasked: z
-    .string()
-    .regex(/^\d{5}\*{4}\d{3}$/)
-    .optional(),
-});
-
-export const gatewayStatusResponseSchema = z.object({
-  connection: connectionStatusSchema,
-  binding: z.object({ state: z.enum(["bound", "unbound"]) }),
+export const whatsappStatusResponseSchema = z.object({
+  connection: z.object({
+    state: z.enum(["connected", "connecting", "disconnected", "unknown"]),
+    detail: connectionStateSchema.optional(),
+    updatedAt: z.string().datetime().optional(),
+  }),
+  binding: z.object({ state: z.enum(["bound", "unbound", "unknown"]) }).strict(),
+  account: z.object({
+    status: z.enum(["connected", "connecting", "disconnected", "unknown"]),
+    gatewayAccountId: z.literal("default").optional(),
+    lastConnectedAt: z.string().datetime().nullable(),
+    lastDisconnectedAt: z.string().datetime().nullable(),
+    phoneNumberMasked: z
+      .string()
+      .regex(/^\d{5}\*{4}\d{3}$/)
+      .nullable(),
+    updatedAt: z.string().datetime().nullable(),
+  }),
+  history: historyStatusSchema,
+  diagnostics: z.object({
+    gateway: z.enum(["healthy", "unavailable"]),
+    lifecyclePersistence: z.enum(["unknown", "ok", "failed"]),
+  }),
 });
 
 export const gatewayQrResponseSchema = z.object({
@@ -53,8 +58,7 @@ export const gatewayErrorResponseSchema = z.object({
   }),
 });
 
-export type ConnectionStatus = z.infer<typeof connectionStatusSchema>;
-export type GatewayStatusResponse = z.infer<typeof gatewayStatusResponseSchema>;
+export type WhatsAppStatusResponse = z.infer<typeof whatsappStatusResponseSchema>;
 export type GatewayQrResponse = z.infer<typeof gatewayQrResponseSchema>;
 
 export class GatewayRequestError extends Error {

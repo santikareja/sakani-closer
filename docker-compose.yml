@@ -92,6 +92,26 @@ services:
       - default
       - gateway_private
 
+  caddy:
+    profiles: ["app"]
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   wa-gateway:
     profiles: ["app", "gateway"]
     build:
@@ -162,6 +182,8 @@ volumes:
   postgres_data:
   redis_data:
   wa_auth_data:
+  caddy_data:
+  caddy_config:
 
 networks:
   gateway_private:

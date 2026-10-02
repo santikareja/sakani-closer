@@ -16,6 +16,8 @@ describe("WhatsApp gateway server client", () => {
             updatedAt: "2026-10-01T00:00:00.000Z",
           },
           binding: { state: "unbound" },
+          lifecyclePersistence: { state: "unknown" },
+          history: { capability: "limited" },
         });
       },
     );
@@ -41,7 +43,13 @@ describe("WhatsApp gateway server client", () => {
           reason: "connect_requested",
           updatedAt: "2026-10-01T00:00:00.000Z",
         },
-        binding: { state: "bound" },
+        binding: {
+          state: "bound",
+          workspaceId: "00000000-0000-4000-8000-000000000001",
+          accountId: "00000000-0000-4000-8000-000000000002",
+        },
+        lifecyclePersistence: { state: "unknown" },
+        history: { capability: "limited" },
       }),
     );
     const client = createWhatsAppGatewayClient(

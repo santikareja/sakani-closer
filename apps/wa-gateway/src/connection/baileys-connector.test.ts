@@ -154,7 +154,7 @@ describe("Baileys disconnect classification", () => {
     expect(values.has("baileys:account:default:credentials")).toBe(true);
   });
 
-  it("clears invalid auth data on logout without reconnecting or sending", async () => {
+  it("preserves encrypted auth data on logout without reconnecting or sending", async () => {
     const credentials = initAuthCreds();
     credentials.me = { id: "628123456789:1@s.whatsapp.net", name: "Owner" };
     credentials.registered = true;
@@ -206,8 +206,8 @@ describe("Baileys disconnect classification", () => {
         statusCode: 401,
       }),
     );
-    expect(values.has("baileys:account:default:credentials")).toBe(false);
-    expect(values.has("baileys:account:default:key:session:one")).toBe(false);
+    expect(values.has("baileys:account:default:credentials")).toBe(true);
+    expect(values.has("baileys:account:default:key:session:one")).toBe(true);
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
@@ -254,7 +254,7 @@ describe("Baileys disconnect classification", () => {
     expect(socket.end).toHaveBeenCalledOnce();
   });
 
-  it("keeps bootstrap history and init queries enabled while full history stays disabled", async () => {
+  it("enables supported full history sync without disabling init queries", async () => {
     const store: AuthStore = {
       read: vi.fn(async () => undefined),
       write: vi.fn(async () => undefined),
@@ -274,8 +274,13 @@ describe("Baileys disconnect classification", () => {
     await connector.open({ onQr: noop, onOpen: noop, onClose: noop }, { allowQr: true });
 
     const options = socketFactory.mock.calls[0]![0] as Record<string, unknown>;
-    expect(options.syncFullHistory).toBe(false);
-    expect(options).not.toHaveProperty("shouldSyncHistoryMessage");
+    expect(options.syncFullHistory).toBe(true);
+    expect(options.shouldSyncHistoryMessage).toBeTypeOf("function");
+    expect(
+      (options.shouldSyncHistoryMessage as (value: { syncType: number }) => boolean)({
+        syncType: proto.HistorySync.HistorySyncType.FULL,
+      }),
+    ).toBe(true);
     expect(options).not.toHaveProperty("fireInitQueries");
     expect(PROCESSABLE_HISTORY_TYPES).toContain(
       proto.HistorySync.HistorySyncType.INITIAL_BOOTSTRAP,
@@ -441,7 +446,7 @@ describe("Baileys disconnect classification", () => {
       sendMessage,
     };
     const sink: InboundEventSink = {
-      publish: vi.fn(),
+      publish: vi.fn(async () => undefined),
       flush: vi.fn(async () => undefined),
     };
     const connector = new BaileysConnector(
@@ -471,11 +476,11 @@ describe("Baileys disconnect classification", () => {
       ],
     } as never);
 
+    await gatewaySocket.close();
     expect(sink.publish).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: "accepted", messageType: "text" }),
     );
     expect(sendMessage).not.toHaveBeenCalled();
-    await gatewaySocket.close();
     expect(sink.flush).toHaveBeenCalledOnce();
   });
 });

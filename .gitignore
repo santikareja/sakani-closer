@@ -32,3 +32,8 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+.env.local
+
+.env*
+apps/web/.env*

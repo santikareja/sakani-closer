@@ -1,14 +1,15 @@
 import makeWASocket, {
   DisconnectReason,
+  Browsers,
   isJidBroadcast,
   isJidGroup,
   jidDecode,
 } from "@whiskeysockets/baileys";
 
-import { clearBaileysAuthState, createBaileysAuthState } from "../auth/baileys-auth-state.js";
+import { createBaileysAuthState } from "../auth/baileys-auth-state.js";
 import type { AuthStore } from "../auth/store.js";
 import type { InboundEventSink } from "../messages/event-sink.js";
-import { normalizeInboundMessage } from "../messages/normalizer.js";
+import { InboundMessagePipeline, type HistoryStatus } from "../messages/pipeline.js";
 import type {
   ConnectionCallbacks,
   DisconnectDiagnostic,
@@ -122,13 +123,26 @@ export function createSafeBaileysLogger(logger: GatewayLogger): SafeBaileysLogge
 }
 
 export class BaileysConnector implements GatewayConnector {
+  private readonly inboundPipeline: InboundMessagePipeline | undefined;
+
   constructor(
     private readonly authStore: AuthStore,
     private readonly logger: GatewayLogger,
     private readonly socketFactory: typeof makeWASocket = makeWASocket,
-    private readonly inboundEventSink?: InboundEventSink,
-    private readonly identifierHashKey?: string,
-  ) {}
+    inboundEventSink?: InboundEventSink,
+    identifierHashKey?: string,
+    inboundPipeline?: InboundMessagePipeline,
+  ) {
+    this.inboundPipeline =
+      inboundPipeline ??
+      (inboundEventSink && identifierHashKey
+        ? new InboundMessagePipeline(inboundEventSink, identifierHashKey, logger)
+        : undefined);
+  }
+
+  getHistoryStatus(): HistoryStatus {
+    return this.inboundPipeline?.getHistoryStatus() ?? { capability: "unavailable" };
+  }
 
   async open(callbacks: ConnectionCallbacks, options: GatewayOpenOptions): Promise<GatewaySocket> {
     let auth: Awaited<ReturnType<typeof createBaileysAuthState>>;
@@ -141,8 +155,10 @@ export class BaileysConnector implements GatewayConnector {
     const socket = this.socketFactory({
       auth: auth.state,
       logger: createSafeBaileysLogger(this.logger),
+      browser: Browsers.macOS("Desktop"),
       markOnlineOnConnect: false,
-      syncFullHistory: false,
+      syncFullHistory: true,
+      shouldSyncHistoryMessage: () => true,
       enableRecentMessageCache: false,
       shouldIgnoreJid: (jid) => Boolean(isJidGroup(jid) || isJidBroadcast(jid)),
       getMessage: async () => undefined,
@@ -172,18 +188,13 @@ export class BaileysConnector implements GatewayConnector {
       void queueCredentialWrite().catch(reportPersistenceFailure);
     });
 
-    const inboundEventSink = this.inboundEventSink;
-    const identifierHashKey = this.identifierHashKey;
-    if (inboundEventSink && identifierHashKey) {
+    const inboundPipeline = this.inboundPipeline;
+    if (inboundPipeline) {
       socket.ev.on("messages.upsert", ({ messages, type }) => {
-        for (const message of messages) {
-          inboundEventSink.publish(
-            normalizeInboundMessage(message, {
-              upsertType: type,
-              identifierHashKey,
-            }),
-          );
-        }
+        inboundPipeline.enqueueRealtime(messages, type);
+      });
+      socket.ev.on("messaging-history.set", (event) => {
+        inboundPipeline.enqueueHistory(event);
       });
     }
 
@@ -209,12 +220,11 @@ export class BaileysConnector implements GatewayConnector {
         const diagnostic = classifyDisconnect(update.lastDisconnect?.error);
         if (diagnostic.kind === "logged_out") {
           void flushCredentialWrites()
-            .then(() => clearBaileysAuthState(this.authStore))
             .then(() => callbacks.onClose(diagnostic))
             .catch(() => {
               this.logger.error(
-                { event: "wa.auth.clear_failed" },
-                "Sesi WhatsApp yang logout gagal dibersihkan",
+                { event: "wa.auth.flush_failed" },
+                "Kredensial WhatsApp gagal diselesaikan saat sesi logout",
               );
               callbacks.onClose({ kind: "auth_error", reason: "auth_persistence_failed" });
             });
@@ -239,7 +249,7 @@ export class BaileysConnector implements GatewayConnector {
           await socket.end(undefined);
         } finally {
           await flushCredentialWrites();
-          await this.inboundEventSink?.flush();
+          await this.inboundPipeline?.flush();
         }
       },
     };

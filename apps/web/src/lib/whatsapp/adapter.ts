@@ -1,4 +1,4 @@
-import type { GatewayStatusResponse } from "./contracts";
+import type { WhatsAppStatusResponse } from "./contracts";
 import type {
   GatewayHealth,
   WhatsAppBindingState,
@@ -9,7 +9,7 @@ import type {
 const unavailableReason = "Kontrol ini hanya tersedia untuk owner workspace.";
 
 function normalizeConnection(
-  response: GatewayStatusResponse | null,
+  response: WhatsAppStatusResponse | null,
 ): Pick<
   WhatsAppViewModel,
   "connectionState" | "connectionLabel" | "gatewayHealth" | "gatewayHealthLabel" | "isQrExpected"
@@ -26,35 +26,50 @@ function normalizeConnection(
   }
 
   const health: GatewayHealth =
-    state === "transient_error" || state === "auth_error" ? "degraded" : "healthy";
-  const healthLabel = health === "degraded" ? "Perlu diperiksa" : "Gateway merespons";
+    response.diagnostics.gateway === "unavailable"
+      ? "unavailable"
+      : response.diagnostics.lifecyclePersistence === "failed"
+        ? "degraded"
+        : "healthy";
+  const healthLabel =
+    health === "degraded"
+      ? "Perlu diperiksa"
+      : health === "unavailable"
+        ? "Tidak dapat dijangkau"
+        : "Gateway merespons";
 
   const map: Record<
-    GatewayStatusResponse["connection"]["state"],
+    WhatsAppStatusResponse["connection"]["state"],
     { state: WhatsAppConnectionState; label: string; qr: boolean }
   > = {
     disconnected: { state: "disconnected", label: "Terputus", qr: false },
     connecting: { state: "connecting", label: "Menghubungkan", qr: false },
-    qr_ready: { state: "connecting", label: "Menunggu pemindaian QR", qr: true },
     connected: { state: "connected", label: "Terhubung", qr: false },
-    logged_out: { state: "disconnected", label: "Sesi WhatsApp keluar", qr: false },
-    auth_error: { state: "disconnected", label: "Sesi tidak valid", qr: false },
-    transient_error: { state: "unknown", label: "Gangguan koneksi", qr: false },
-    stopping: { state: "disconnected", label: "Memutuskan koneksi", qr: false },
+    unknown: { state: "unknown", label: "Tidak diketahui", qr: false },
   };
   const normalized = map[state];
+  const detail = response.connection.detail;
 
   return {
     connectionState: normalized.state,
-    connectionLabel: normalized.label,
+    connectionLabel:
+      detail === "qr_ready"
+        ? "Menunggu pemindaian QR"
+        : detail === "logged_out"
+          ? "Sesi WhatsApp keluar"
+          : detail === "auth_error"
+            ? "Sesi tidak valid"
+            : detail === "transient_error"
+              ? "Gangguan koneksi"
+              : normalized.label,
     gatewayHealth: health,
     gatewayHealthLabel: healthLabel,
-    isQrExpected: normalized.qr,
+    isQrExpected: detail === "qr_ready" || normalized.qr,
   };
 }
 
 export function createWhatsAppViewModel(
-  response: GatewayStatusResponse | null,
+  response: WhatsAppStatusResponse | null,
   role: string,
 ): WhatsAppViewModel {
   const isOwner = role === "owner";
@@ -70,11 +85,11 @@ export function createWhatsAppViewModel(
     ...connection,
     bindingState,
     bindingLabel: bindingLabels[bindingState],
-    phoneNumberMasked: response?.connection.phoneNumberMasked ?? null,
-    accountIdentifier: null,
-    lastConnectedAt: null,
-    lastDisconnectedAt: null,
-    updatedAt: response?.connection.updatedAt ?? null,
+    phoneNumberMasked: response?.account.phoneNumberMasked ?? null,
+    accountIdentifier: response?.account.gatewayAccountId ?? null,
+    lastConnectedAt: response?.account.lastConnectedAt ?? null,
+    lastDisconnectedAt: response?.account.lastDisconnectedAt ?? null,
+    updatedAt: response?.account.updatedAt ?? response?.connection.updatedAt ?? null,
     isOwner,
     capabilities: {
       connect: { available: isOwner, reason: isOwner ? null : unavailableReason },

@@ -17,10 +17,12 @@ import {
   DEFAULT_MAX_RETRY_ATTEMPTS,
   DEFAULT_RETRY_BASE_DELAY_MS,
   DEFAULT_RETRY_MAX_DELAY_MS,
+  DEFAULT_STABLE_CONNECTION_MS,
 } from "./connection/manager.js";
 import { ConnectionStateMachine } from "./connection/state-machine.js";
 import type { GatewayConnector, GatewayLogger } from "./connection/types.js";
 import { loadGatewayConfig, type GatewayConfig } from "./config.js";
+import { HttpAccountLifecycleSink } from "./lifecycle/event-sink.js";
 import { AccountBindingStore } from "./messages/account-binding.js";
 import { HttpInboundEventSink } from "./messages/event-sink.js";
 import { QrManager } from "./qr/qr-manager.js";
@@ -127,6 +129,12 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<G
     accountBindings,
     logger,
   );
+  const lifecycleSink = new HttpAccountLifecycleSink(
+    config.lifecycleUrl,
+    config.internalServiceToken,
+    accountBindings,
+    logger,
+  );
   const connector =
     options.connector ??
     new BaileysConnector(
@@ -153,6 +161,9 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<G
           reason,
         ),
     },
+    Math.random,
+    DEFAULT_STABLE_CONNECTION_MS,
+    lifecycleSink,
   );
   const server = createGatewayServer({
     manager,
@@ -160,7 +171,12 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<G
     internalServiceToken: config.internalServiceToken,
     logger,
     bindAccount: (binding) => accountBindings.set(binding),
-    getBindingState: () => (accountBindings.get() ? "bound" : "unbound"),
+    getBinding: () => accountBindings.get(),
+    getLifecycleStatus: () => lifecycleSink.getStatus(),
+    getHistoryStatus: () =>
+      connector instanceof BaileysConnector
+        ? connector.getHistoryStatus()
+        : { capability: "unavailable" },
   });
 
   await listen(server, config.port);
@@ -241,6 +257,7 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<G
     stopPromise ??= (async () => {
       await manager.stop();
       await inboundEventSink.flush();
+      await lifecycleSink.flush();
       await closeServer(server);
     })();
     return stopPromise;

@@ -55,7 +55,15 @@ describe("WhatsApp gateway internal routes", () => {
       bindAccount: async () => {
         bindingState = "bound";
       },
-      getBindingState: () => bindingState,
+      getBinding: () =>
+        bindingState === "bound"
+          ? {
+              workspaceId: "00000000-0000-4000-8000-000000000001",
+              accountId: "00000000-0000-4000-8000-000000000002",
+            }
+          : undefined,
+      getLifecycleStatus: () => ({ state: "unknown" }),
+      getHistoryStatus: () => ({ capability: "limited" }),
     });
     await listen(server, 0);
     const address = server.address() as AddressInfo;

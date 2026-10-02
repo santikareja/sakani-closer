@@ -1,14 +1,16 @@
 import { z } from "zod";
-import type { WorkspaceContext } from "@sakani/database";
+import { requireWorkspaceContext, type WorkspaceContext } from "@sakani/database";
+import { DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID } from "@sakani/shared";
 
 import { isSameOriginMutation } from "../auth/http";
 import type { CurrentSession } from "../auth/types";
 import {
   GatewayRequestError,
   type GatewayQrResponse,
-  type GatewayStatusResponse,
+  type WhatsAppStatusResponse,
 } from "./contracts";
 import type { WhatsAppGatewayClient } from "./gateway-client";
+import type { GatewayStatusResponse } from "./gateway-internal-contracts";
 
 const emptyBodySchema = z.object({}).strict();
 
@@ -18,6 +20,76 @@ export interface WhatsAppRouteDependencies {
   gateway: WhatsAppGatewayClient;
   accountRegistry: {
     ensureAccount(context: WorkspaceContext): Promise<{ id: string }>;
+    getAccount(context: WorkspaceContext): Promise<{
+      id: string;
+      gatewayAccountId: string;
+      status: string;
+      phoneNumberMasked: string | null;
+      lastConnectedAt: Date | null;
+      lastDisconnectedAt: Date | null;
+      updatedAt: Date;
+    } | null>;
+    markConnecting(context: WorkspaceContext, accountId: string): Promise<void>;
+    markDisconnected(context: WorkspaceContext, accountId: string): Promise<void>;
+  };
+}
+
+type DurableAccount = Awaited<
+  ReturnType<WhatsAppRouteDependencies["accountRegistry"]["getAccount"]>
+>;
+
+export function createPublicWhatsAppStatus(
+  gateway: GatewayStatusResponse | null,
+  account: DurableAccount,
+  workspaceId: string,
+): WhatsAppStatusResponse {
+  const rawState = gateway?.connection.state;
+  const connectionState: WhatsAppStatusResponse["connection"]["state"] =
+    rawState === "connected"
+      ? "connected"
+      : rawState === "connecting" || rawState === "qr_ready"
+        ? "connecting"
+        : rawState === "disconnected" ||
+            rawState === "logged_out" ||
+            rawState === "auth_error" ||
+            rawState === "stopping"
+          ? "disconnected"
+          : "unknown";
+  const bindingMatches =
+    gateway?.binding.state === "bound" &&
+    gateway.binding.workspaceId === workspaceId &&
+    account?.id === gateway.binding.accountId;
+  const accountStatus: WhatsAppStatusResponse["account"]["status"] =
+    account?.status === "connected" ||
+    account?.status === "connecting" ||
+    account?.status === "disconnected"
+      ? account.status
+      : "unknown";
+
+  return {
+    connection: {
+      state: connectionState,
+      ...(rawState ? { detail: rawState } : {}),
+      ...(gateway?.connection.updatedAt ? { updatedAt: gateway.connection.updatedAt } : {}),
+    },
+    binding: {
+      state: gateway ? (bindingMatches ? "bound" : "unbound") : "unknown",
+    },
+    account: {
+      status: accountStatus,
+      ...(account?.gatewayAccountId === DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID
+        ? { gatewayAccountId: DEFAULT_WHATSAPP_GATEWAY_ACCOUNT_ID }
+        : {}),
+      lastConnectedAt: account?.lastConnectedAt?.toISOString() ?? null,
+      lastDisconnectedAt: account?.lastDisconnectedAt?.toISOString() ?? null,
+      phoneNumberMasked: account?.phoneNumberMasked ?? null,
+      updatedAt: account?.updatedAt.toISOString() ?? null,
+    },
+    history: gateway?.history ?? { capability: "unavailable" },
+    diagnostics: {
+      gateway: gateway ? "healthy" : "unavailable",
+      lifecyclePersistence: gateway?.lifecyclePersistence.state ?? "unknown",
+    },
   };
 }
 
@@ -57,6 +129,17 @@ function hasEmptyQuery(request: Request): boolean {
   return new URL(request.url).searchParams.size === 0;
 }
 
+function bindingBelongsToAccount(
+  gateway: GatewayStatusResponse,
+  workspaceId: string,
+  accountId: string,
+): boolean {
+  return (
+    gateway.binding.state === "unbound" ||
+    (gateway.binding.workspaceId === workspaceId && gateway.binding.accountId === accountId)
+  );
+}
+
 export async function handleWhatsAppStatus(
   request: Request,
   dependencies: WhatsAppRouteDependencies,
@@ -73,9 +156,14 @@ export async function handleWhatsAppStatus(
   }
 
   try {
-    return json(await dependencies.gateway.getStatus());
-  } catch (error) {
-    return safeGatewayError(error);
+    const context = requireWorkspaceContext(session.workspaceId);
+    const [gateway, account] = await Promise.all([
+      dependencies.gateway.getStatus().catch(() => null),
+      dependencies.accountRegistry.getAccount(context).catch(() => null),
+    ]);
+    return json(createPublicWhatsAppStatus(gateway, account, context.workspaceId));
+  } catch {
+    return json(createPublicWhatsAppStatus(null, null, session.workspaceId));
   }
 }
 
@@ -125,20 +213,60 @@ export async function handleWhatsAppMutation(
   }
 
   try {
+    const context = requireWorkspaceContext(session.workspaceId);
     if (action === "disconnect") {
-      return json(await dependencies.gateway.disconnect());
+      const account = await dependencies.accountRegistry.getAccount(context);
+      const currentGateway = await dependencies.gateway.getStatus();
+      if (
+        currentGateway.binding.state === "bound" &&
+        (!account || !bindingBelongsToAccount(currentGateway, context.workspaceId, account.id))
+      ) {
+        return json(
+          { error: { code: "BINDING_CONFLICT", message: "Binding gateway tidak sesuai." } },
+          409,
+        );
+      }
+      const gateway = await dependencies.gateway.disconnect();
+      if (account) await dependencies.accountRegistry.markDisconnected(context, account.id);
+      const durableAccount = await dependencies.accountRegistry.getAccount(context);
+      return json(createPublicWhatsAppStatus(gateway, durableAccount, context.workspaceId));
     }
-    const account = await dependencies.accountRegistry.ensureAccount({
-      workspaceId: session.workspaceId,
-    });
+    const currentGateway = await dependencies.gateway.getStatus();
+    if (
+      currentGateway.binding.state === "bound" &&
+      currentGateway.binding.workspaceId !== context.workspaceId
+    ) {
+      return json(
+        { error: { code: "BINDING_CONFLICT", message: "Binding gateway tidak sesuai." } },
+        409,
+      );
+    }
+    const account = await dependencies.accountRegistry.ensureAccount(context);
     const binding = { workspaceId: session.workspaceId, accountId: account.id };
+    if (!bindingBelongsToAccount(currentGateway, context.workspaceId, account.id)) {
+      return json(
+        { error: { code: "BINDING_CONFLICT", message: "Binding gateway tidak sesuai." } },
+        409,
+      );
+    }
     if (action === "refresh") {
       await dependencies.gateway.disconnect();
     }
-    return json(await dependencies.gateway.connect(binding), 202);
+    await dependencies.accountRegistry.markConnecting(context, account.id);
+    let gateway: GatewayStatusResponse;
+    try {
+      gateway = await dependencies.gateway.connect(binding);
+    } catch (error) {
+      await dependencies.accountRegistry
+        .markDisconnected(context, account.id)
+        .catch(() => undefined);
+      throw error;
+    }
+    const durableAccount = await dependencies.accountRegistry.getAccount(context);
+    return json(createPublicWhatsAppStatus(gateway, durableAccount, context.workspaceId), 202);
   } catch (error) {
     return safeGatewayError(error);
   }
 }
 
-export type { GatewayQrResponse, GatewayStatusResponse };
+export type { GatewayQrResponse, WhatsAppStatusResponse };

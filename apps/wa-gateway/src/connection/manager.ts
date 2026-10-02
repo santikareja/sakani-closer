@@ -5,6 +5,7 @@ import type {
   ConnectionSnapshot,
   ConnectionStatus,
   ConnectionIntentStore,
+  ConnectionLifecycleObserver,
   DisconnectDiagnostic,
   GatewayConnector,
   GatewayLogger,
@@ -56,6 +57,7 @@ export class ConnectionManager {
     private readonly connectionIntentStore?: ConnectionIntentStore,
     private readonly random: () => number = Math.random,
     private readonly stableConnectionMs = DEFAULT_STABLE_CONNECTION_MS,
+    private readonly lifecycleObserver?: ConnectionLifecycleObserver,
   ) {
     if (!Number.isInteger(maxRetryAttempts) || maxRetryAttempts < 0 || maxRetryAttempts > 20) {
       throw new RangeError("Max retry attempts must be between 0 and 20");
@@ -103,7 +105,9 @@ export class ConnectionManager {
   authenticationFailedAtStartup(): ConnectionSnapshot {
     this.authStateClassification = "corrupt";
     if (this.stateMachine.getSnapshot().state !== "disconnected") return this.getStatus();
-    return this.stateMachine.transition("auth_error", "authentication_failed");
+    const snapshot = this.stateMachine.transition("auth_error", "authentication_failed");
+    this.lifecycleObserver?.disconnected();
+    return snapshot;
   }
 
   async disconnect(): Promise<ConnectionSnapshot> {
@@ -117,7 +121,9 @@ export class ConnectionManager {
 
     const current = this.stateMachine.getSnapshot().state;
     if (current === "disconnected") {
-      return this.stateMachine.transition("disconnected", "explicit_disconnect");
+      const snapshot = this.stateMachine.transition("disconnected", "explicit_disconnect");
+      this.lifecycleObserver?.disconnected();
+      return snapshot;
     }
     if (current === "stopping") return this.getStatus();
 
@@ -131,7 +137,9 @@ export class ConnectionManager {
       }
     }
 
-    return this.stateMachine.transition("disconnected", "explicit_disconnect");
+    const snapshot = this.stateMachine.transition("disconnected", "explicit_disconnect");
+    this.lifecycleObserver?.disconnected();
+    return snapshot;
   }
 
   async stop(): Promise<ConnectionSnapshot> {
@@ -160,7 +168,9 @@ export class ConnectionManager {
       }
     }
     await this.intentWrite;
-    return this.stateMachine.transition("disconnected", "shutdown_complete");
+    const snapshot = this.stateMachine.transition("disconnected", "shutdown_complete");
+    this.lifecycleObserver?.disconnected();
+    return snapshot;
   }
 
   private async connectManually(requestGeneration: number): Promise<ConnectionSnapshot> {
@@ -223,9 +233,12 @@ export class ConnectionManager {
       if (error instanceof ConnectorAuthenticationError) {
         this.authStateClassification = "corrupt";
         await this.persistAutoReconnectIntent(false, "invalid_auth");
-        return this.stateMachine.transition("auth_error", "authentication_failed");
+        const snapshot = this.stateMachine.transition("auth_error", "authentication_failed");
+        this.lifecycleObserver?.disconnected();
+        return snapshot;
       }
       this.stateMachine.transition("transient_error", "connection_interrupted");
+      this.lifecycleObserver?.disconnected();
       const retry = this.scheduleRetry();
       this.logClose(
         { kind: "transient_error", reason: "unknown_transient" },
@@ -255,6 +268,7 @@ export class ConnectionManager {
     if (socket) void socket.close().catch(() => undefined);
     void this.persistAutoReconnectIntent(false, "invalid_auth");
     this.stateMachine.transition("auth_error", "authentication_failed");
+    this.lifecycleObserver?.disconnected();
     this.logger.warn(
       { event: "wa.auth.unexpected_qr" },
       "Session tersimpan meminta QR baru dan tidak akan dicoba ulang otomatis",
@@ -275,6 +289,7 @@ export class ConnectionManager {
     this.phoneNumberMasked = phoneNumberMasked;
     this.authStateClassification = "registered";
     this.stateMachine.transition("connected", "connection_opened");
+    this.lifecycleObserver?.connected(phoneNumberMasked);
     this.logger.info(
       { event: "wa.connection.open", authStateClassification: "registered" },
       "Koneksi WhatsApp terbuka",
@@ -292,6 +307,7 @@ export class ConnectionManager {
       this.authStateClassification = "logged_out";
       void this.persistAutoReconnectIntent(false, "logged_out");
       this.stateMachine.transition("logged_out", "logout_detected");
+      this.lifecycleObserver?.disconnected();
       this.logClose(diagnostic, false, this.retryAttempt);
       return;
     }
@@ -299,11 +315,13 @@ export class ConnectionManager {
       this.authStateClassification = "logged_out";
       void this.persistAutoReconnectIntent(false, "invalid_auth");
       this.stateMachine.transition("auth_error", "authentication_failed");
+      this.lifecycleObserver?.disconnected();
       this.logClose(diagnostic, false, this.retryAttempt);
       return;
     }
 
     this.stateMachine.transition("transient_error", "connection_interrupted");
+    this.lifecycleObserver?.disconnected();
     const retry = this.scheduleRetry();
     this.logClose(diagnostic, retry.scheduled, retry.retryCount, retry.nextRetryDelayMs);
   }

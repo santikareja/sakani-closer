@@ -7,10 +7,12 @@ import {
   GatewayRequestError,
   gatewayErrorResponseSchema,
   gatewayQrResponseSchema,
-  gatewayStatusResponseSchema,
   type GatewayQrResponse,
-  type GatewayStatusResponse,
 } from "./contracts";
+import {
+  gatewayStatusResponseSchema,
+  type GatewayStatusResponse,
+} from "./gateway-internal-contracts";
 
 export interface WhatsAppGatewayClient {
   getStatus(): Promise<GatewayStatusResponse>;

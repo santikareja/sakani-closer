@@ -1,5 +1,5 @@
 import type { InboxDiagnosticsDto, ConversationListDto } from "../inbox/types";
-import type { GatewayStatusResponse } from "../whatsapp/contracts";
+import type { WhatsAppStatusResponse } from "../whatsapp/contracts";
 import { createWhatsAppViewModel } from "../whatsapp/adapter";
 import { createConversationView } from "../inbox/adapter";
 import type { DashboardViewModel } from "../../types/dashboard";
@@ -7,7 +7,7 @@ import type { DashboardViewModel } from "../../types/dashboard";
 export function createDashboardViewModel(input: {
   diagnostics: InboxDiagnosticsDto;
   conversations: ConversationListDto;
-  whatsapp: GatewayStatusResponse | null;
+  whatsapp: WhatsAppStatusResponse | null;
   role: string;
   now?: Date;
 }): DashboardViewModel {

@@ -21,9 +21,9 @@ import { createWhatsAppViewModel } from "../../../../lib/whatsapp/adapter";
 import {
   gatewayErrorResponseSchema,
   gatewayQrResponseSchema,
-  gatewayStatusResponseSchema,
+  whatsappStatusResponseSchema,
   type GatewayQrResponse,
-  type GatewayStatusResponse,
+  type WhatsAppStatusResponse,
 } from "../../../../lib/whatsapp/contracts";
 
 async function readResponse<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
@@ -52,11 +52,11 @@ export function WhatsAppSettingsClient({
   initialStatus,
   role,
 }: {
-  initialStatus: GatewayStatusResponse | null;
+  initialStatus: WhatsAppStatusResponse | null;
   role: string;
 }) {
   const { promise: toastPromise } = useToast();
-  const [status, setStatus] = useState<GatewayStatusResponse | null>(initialStatus);
+  const [status, setStatus] = useState<WhatsAppStatusResponse | null>(initialStatus);
   const [qr, setQr] = useState<GatewayQrResponse | null>(null);
   const [qrExpired, setQrExpired] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
@@ -69,7 +69,7 @@ export function WhatsAppSettingsClient({
   const statusRequest = useRef<AbortController | null>(null);
   const qrRequest = useRef<AbortController | null>(null);
   const view = useMemo(() => createWhatsAppViewModel(status, role), [role, status]);
-  const rawState = status?.connection.state;
+  const rawState = status?.connection.detail;
 
   const loadStatus = useCallback(async (quiet = false) => {
     statusRequest.current?.abort();
@@ -80,7 +80,7 @@ export function WhatsAppSettingsClient({
         cache: "no-store",
         signal: controller.signal,
       });
-      const body = await readResponse(response, gatewayStatusResponseSchema);
+      const body = await readResponse(response, whatsappStatusResponseSchema);
       setStatus(body);
       if (!quiet) setError(null);
     } catch (requestError) {
@@ -142,7 +142,7 @@ export function WhatsAppSettingsClient({
           headers: { "content-type": "application/json" },
           body: "{}",
         });
-        const body = await readResponse(response, gatewayStatusResponseSchema);
+        const body = await readResponse(response, whatsappStatusResponseSchema);
         setStatus(body);
         setQr(null);
         return body;

@@ -462,4 +462,70 @@ describe("ConnectionManager", () => {
     expect(socket.close).toHaveBeenCalledOnce();
     expect(manager.getStatus().state).toBe("disconnected");
   });
+
+  it("notifies lifecycle persistence on open and explicit disconnect", async () => {
+    const connector = new FakeConnector();
+    const { logger } = createLogger();
+    const observer = { connected: vi.fn(), disconnected: vi.fn() };
+    const manager = new ConnectionManager(
+      connector,
+      new ConnectionStateMachine(),
+      new QrManager(),
+      logger,
+      1_000,
+      30_000,
+      5,
+      undefined,
+      Math.random,
+      60_000,
+      observer,
+    );
+
+    await manager.connect();
+    connector.callbacks[0]!.onOpen("62812****789");
+    await manager.disconnect();
+
+    expect(observer.connected).toHaveBeenCalledOnce();
+    expect(observer.connected).toHaveBeenCalledWith("62812****789");
+    expect(observer.disconnected).toHaveBeenCalledOnce();
+  });
+
+  it("keeps connected generation N+1 when disconnected generation N arrives after it", async () => {
+    vi.useFakeTimers();
+    const connector = new FakeConnector();
+    const { logger } = createLogger();
+    const lifecyclePersistence = { connected: vi.fn(), disconnected: vi.fn() };
+    const manager = new ConnectionManager(
+      connector,
+      new ConnectionStateMachine(),
+      new QrManager(),
+      logger,
+      1,
+      10,
+      5,
+      undefined,
+      () => 0.5,
+      60_000,
+      lifecyclePersistence,
+    );
+
+    await manager.connect();
+    const staleCallbacks = connector.callbacks[0]!;
+    staleCallbacks.onClose(transientClose);
+    await vi.advanceTimersByTimeAsync(1);
+    connector.callbacks[1]!.onOpen("62812****789");
+
+    expect(lifecyclePersistence.disconnected).toHaveBeenCalledOnce();
+    expect(lifecyclePersistence.connected).toHaveBeenCalledOnce();
+    lifecyclePersistence.disconnected.mockClear();
+
+    // Generation N is rejected before it can reach the lifecycle persistence sink.
+    staleCallbacks.onClose(transientClose);
+
+    expect(manager.getStatus().state).toBe("connected");
+    expect(lifecyclePersistence.connected).toHaveBeenCalledOnce();
+    expect(lifecyclePersistence.disconnected).not.toHaveBeenCalled();
+    await manager.disconnect();
+    vi.useRealTimers();
+  });
 });

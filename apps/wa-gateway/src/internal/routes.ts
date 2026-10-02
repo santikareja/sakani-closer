@@ -6,6 +6,8 @@ import { z } from "zod";
 import type { ConnectionManager } from "../connection/manager.js";
 import type { GatewayLogger } from "../connection/types.js";
 import { createHealthPayload } from "../health/index.js";
+import type { LifecyclePersistenceStatus } from "../lifecycle/event-sink.js";
+import type { HistoryStatus } from "../messages/pipeline.js";
 import type { QrManager } from "../qr/qr-manager.js";
 import { hasValidInternalToken } from "./auth.js";
 
@@ -48,7 +50,19 @@ export interface InternalRouteDependencies {
   internalServiceToken: string;
   logger: GatewayLogger;
   bindAccount(binding: WhatsAppAccountBinding): Promise<void>;
-  getBindingState(): "bound" | "unbound";
+  getBinding(): WhatsAppAccountBinding | undefined;
+  getLifecycleStatus(): LifecyclePersistenceStatus;
+  getHistoryStatus(): HistoryStatus;
+}
+
+function statusPayload(dependencies: InternalRouteDependencies) {
+  const binding = dependencies.getBinding();
+  return {
+    connection: dependencies.manager.getStatus(),
+    binding: binding ? { state: "bound" as const, ...binding } : { state: "unbound" as const },
+    lifecyclePersistence: dependencies.getLifecycleStatus(),
+    history: dependencies.getHistoryStatus(),
+  };
 }
 
 function sendJson(response: ServerResponse, statusCode: number, payload: unknown): void {
@@ -101,10 +115,7 @@ export function createInternalRequestHandler(dependencies: InternalRouteDependen
 
         if (request.method === "GET" && url.pathname === "/internal/status") {
           parseQuery(url);
-          sendJson(response, 200, {
-            connection: dependencies.manager.getStatus(),
-            binding: { state: dependencies.getBindingState() },
-          });
+          sendJson(response, 200, statusPayload(dependencies));
           return;
         }
 
@@ -118,20 +129,14 @@ export function createInternalRequestHandler(dependencies: InternalRouteDependen
           const binding = accountBindingSchema.parse(await parseJsonBody(request));
           await dependencies.bindAccount(binding);
           const connection = await dependencies.manager.connect();
-          sendJson(response, 202, {
-            connection,
-            binding: { state: dependencies.getBindingState() },
-          });
+          sendJson(response, 202, { ...statusPayload(dependencies), connection });
           return;
         }
 
         if (request.method === "POST" && url.pathname === "/internal/disconnect") {
           emptyBodySchema.parse(await parseJsonBody(request));
           const connection = await dependencies.manager.disconnect();
-          sendJson(response, 200, {
-            connection,
-            binding: { state: dependencies.getBindingState() },
-          });
+          sendJson(response, 200, { ...statusPayload(dependencies), connection });
           return;
         }
 

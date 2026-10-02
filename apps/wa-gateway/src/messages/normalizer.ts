@@ -107,7 +107,8 @@ function mediaMetadata(
 }
 
 export interface NormalizeMessageOptions {
-  upsertType: "append" | "notify";
+  upsertType?: "append" | "notify" | undefined;
+  source?: "realtime" | "history" | undefined;
   identifierHashKey: string;
 }
 
@@ -120,7 +121,7 @@ export function normalizeInboundMessage(
     ? hashOpaqueIdentifier(providerMessageId, options.identifierHashKey)
     : undefined;
 
-  if (options.upsertType !== "notify") {
+  if (options.source !== "history" && options.upsertType !== "notify") {
     return ignored("historical_event", providerMessageIdHash);
   }
 

@@ -74,3 +74,12 @@ export interface WhatsAppInboundEvent {
   binding: WhatsAppAccountBinding;
   message: NormalizedInboundMessage;
 }
+
+export interface WhatsAppAccountLifecycleEvent {
+  version: 1;
+  binding: WhatsAppAccountBinding;
+  correlationId: string;
+  state: "connected" | "disconnected";
+  occurredAt: string;
+  phoneNumberMasked?: string | undefined;
+}

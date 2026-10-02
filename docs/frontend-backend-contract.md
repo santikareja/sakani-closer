@@ -35,23 +35,17 @@ The dashboard continues to use `requireSession()` and the workspace from `Curren
 
 ### WhatsApp
 
-| Route                         | Method | Authentication                | Request                  | Response DTO                                                         | Loading and error behavior                                                                                    | Capability  |
-| ----------------------------- | ------ | ----------------------------- | ------------------------ | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ----------- |
-| `/api/v1/whatsapp/status`     | `GET`  | Owner session                 | No query parameters      | `{ connection, binding }` validated by `gatewayStatusResponseSchema` | Client shows skeleton or last known state, aborts superseded polling requests, and shows a safe retry message | Available   |
-| `/api/v1/whatsapp/connect`    | `POST` | Owner session and same origin | Strict empty JSON object | Status DTO, normally `202`                                           | Action spinner plus aria-live toast; no optimistic connected state                                            | Available   |
-| `/api/v1/whatsapp/disconnect` | `POST` | Owner session and same origin | Strict empty JSON object | Status DTO                                                           | Requires confirmation dialog; retains inline safe error state                                                 | Available   |
-| `/api/v1/whatsapp/refresh`    | `POST` | Owner session and same origin | Strict empty JSON object | Status DTO, normally `202`                                           | Disconnects and reconnects through existing handler; action remains pending until response                    | Available   |
-| `/api/v1/whatsapp/qr`         | `GET`  | Owner session                 | No query parameters      | `{ qr, expiresAt }` validated by `gatewayQrResponseSchema`           | QR renders only when the connection state is `qr_ready`; expiration clears it                                 | Conditional |
+| Route                         | Method | Authentication                | Request                  | Response DTO                                                                                         | Loading and error behavior                                                                                    | Capability  |
+| ----------------------------- | ------ | ----------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ----------- |
+| `/api/v1/whatsapp/status`     | `GET`  | Owner session                 | No query parameters      | `{ connection, binding, account, history, diagnostics }` validated by `whatsappStatusResponseSchema` | Client shows skeleton or last known state, aborts superseded polling requests, and shows a safe retry message | Available   |
+| `/api/v1/whatsapp/connect`    | `POST` | Owner session and same origin | Strict empty JSON object | Status DTO, normally `202`                                                                           | Action spinner plus aria-live toast; no optimistic connected state                                            | Available   |
+| `/api/v1/whatsapp/disconnect` | `POST` | Owner session and same origin | Strict empty JSON object | Status DTO                                                                                           | Requires confirmation dialog; retains inline safe error state                                                 | Available   |
+| `/api/v1/whatsapp/refresh`    | `POST` | Owner session and same origin | Strict empty JSON object | Status DTO, normally `202`                                                                           | Disconnects and reconnects through existing handler; action remains pending until response                    | Available   |
+| `/api/v1/whatsapp/qr`         | `GET`  | Owner session                 | No query parameters      | `{ qr, expiresAt }` validated by `gatewayQrResponseSchema`                                           | QR renders only when the connection state is `qr_ready`; expiration clears it                                 | Conditional |
 
-Normalized UI connection states are `connected | disconnected | connecting | unknown`. Binding states are `bound | unbound | unknown`. Raw gateway states remain unchanged at the route boundary.
+Public connection states are `connected | disconnected | connecting | unknown`. A safe `connection.detail` preserves the internal runtime state for QR/error presentation. Public binding is exactly `{ state: "bound" }`, `{ state: "unbound" }`, or `{ state: "unknown" }`; it never includes `workspaceId` or `accountId`. The server-only route compares the encrypted internal binding with the authenticated workspace's durable default account before reporting `bound`.
 
-Fields not returned by the current contract stay nullable:
-
-- `accountIdentifier`
-- `lastConnectedAt`
-- `lastDisconnectedAt`
-
-The UI never substitutes `default` for an absent account identifier.
+The account object returns durable status, safe lifecycle timestamps, and the masked account identifier. `gatewayAccountId: default` is returned only after a trusted server-side query resolves the workspace-scoped default account. History capability is reported separately as `available | limited | unavailable`; `limited` never implies that an established session has synchronized old messages.
 
 ### Inbox
 
@@ -82,7 +76,7 @@ Search is presentation-only for the currently loaded page. Server pagination rem
 
 ### Internal ingestion
 
-`POST /api/v1/internal/whatsapp/messages` is authenticated with `INTERNAL_SERVICE_TOKEN` and is reserved for the gateway. It is not a browser contract, is not referenced by interactive dashboard code, and must remain inaccessible to client-side calls.
+`POST /api/v1/internal/whatsapp/messages` and `POST /api/v1/internal/whatsapp/lifecycle` are authenticated with `INTERNAL_SERVICE_TOKEN` and reserved for the gateway. They are not browser contracts, are not referenced by interactive dashboard code, and Caddy returns `404` for every public `/api/v1/internal/*` request. Gateway-to-web calls bypass Caddy over the private Docker service URL.
 
 ## Adapter boundary
 

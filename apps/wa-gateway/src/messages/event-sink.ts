@@ -4,7 +4,7 @@ import type { GatewayLogger } from "../connection/types.js";
 import type { AccountBindingStore } from "./account-binding.js";
 
 export interface InboundEventSink {
-  publish(message: NormalizedInboundMessage): void;
+  publish(message: NormalizedInboundMessage): Promise<void>;
   flush(): Promise<void>;
 }
 
@@ -20,7 +20,7 @@ export class HttpInboundEventSink implements InboundEventSink {
     private readonly maxAttempts = 3,
   ) {}
 
-  publish(message: NormalizedInboundMessage): void {
+  publish(message: NormalizedInboundMessage): Promise<void> {
     const binding = this.bindings.get();
     if (!binding) {
       this.logger.warn(
@@ -32,12 +32,13 @@ export class HttpInboundEventSink implements InboundEventSink {
         },
         "Event WhatsApp belum dapat disimpan karena akun belum terikat ke workspace",
       );
-      return;
+      return Promise.resolve();
     }
 
     const payload: WhatsAppInboundEvent = { version: 1, binding, message };
     const task = this.deliver(payload).finally(() => this.pending.delete(task));
     this.pending.add(task);
+    return task;
   }
 
   async flush(): Promise<void> {
