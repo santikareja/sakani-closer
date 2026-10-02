@@ -1,27 +1,23 @@
-import Link from "next/link";
-
+import { PageHeader } from "../../../../components/ui/page-header";
+import { StatusBadge } from "../../../../components/ui/status-badge";
 import { requireSession } from "../../../../lib/auth/dal";
+import { getDashboardWhatsAppStatus } from "../../../../lib/whatsapp/status";
 import { WhatsAppSettingsClient } from "./whatsapp-settings-client";
 
 export const dynamic = "force-dynamic";
 
 export default async function WhatsAppSettingsPage() {
-  await requireSession("/dashboard/settings/whatsapp");
+  const session = await requireSession("/dashboard/settings/whatsapp");
+  const initialStatus = await getDashboardWhatsAppStatus();
 
   return (
-    <main className="dashboard-shell whatsapp-settings-shell">
-      <Link className="text-link back-link" href="/dashboard">
-        ← Kembali ke dashboard
-      </Link>
-      <header className="settings-header">
-        <p className="eyebrow">Pengaturan · WhatsApp</p>
-        <h1>Hubungkan akun test</h1>
-        <p className="lead">
-          Buat QR hanya saat Anda siap memindainya. Session valid akan dipulihkan otomatis setelah
-          restart tanpa membuat QR baru, dan fitur pengiriman pesan belum tersedia.
-        </p>
-      </header>
-      <WhatsAppSettingsClient />
-    </main>
+    <div className="page-stack whatsapp-settings-page">
+      <PageHeader
+        title="Koneksi WhatsApp"
+        description="Kelola ikatan akun, QR, dan kesehatan gateway tanpa menampilkan status autentikasi atau token."
+        meta={<StatusBadge tone="info">Kontrol owner</StatusBadge>}
+      />
+      <WhatsAppSettingsClient initialStatus={initialStatus} role={session.role} />
+    </div>
   );
 }

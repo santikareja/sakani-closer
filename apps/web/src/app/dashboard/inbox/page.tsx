@@ -1,11 +1,21 @@
-import Link from "next/link";
 import { z } from "zod";
 
+import { ContactPanel } from "../../../components/inbox/contact-panel";
+import { ConversationList } from "../../../components/inbox/conversation-list";
+import { MessageTimeline } from "../../../components/inbox/message-timeline";
+import { EmptyState, ErrorState } from "../../../components/ui/states";
+import { PageHeader } from "../../../components/ui/page-header";
+import { StatusBadge } from "../../../components/ui/status-badge";
 import { requireSession } from "../../../lib/auth/dal";
+import {
+  createConversationDetailView,
+  createConversationView,
+  filterConversationViews,
+} from "../../../lib/inbox/adapter";
 import { decodeInboxCursor } from "../../../lib/inbox/cursor";
 import { DrizzleInboxRepository } from "../../../lib/inbox/repository";
-import type { ConversationDetailDto } from "../../../lib/inbox/types";
-import { getWhatsAppRouteDependencies } from "../../../lib/whatsapp/route-runtime";
+import { createWhatsAppViewModel } from "../../../lib/whatsapp/adapter";
+import { getDashboardWhatsAppStatus } from "../../../lib/whatsapp/status";
 
 export const dynamic = "force-dynamic";
 
@@ -21,109 +31,16 @@ const searchSchema = z.object({
     .max(512)
     .refine((value) => decodeInboxCursor(value) !== undefined)
     .optional(),
+  q: z.string().trim().max(120).default(""),
+  filter: z.enum(["all", "unread", "assigned", "attention"]).default("all"),
 });
 
-function formatTime(value: string): string {
+function formatDateTime(value: string): string {
   return new Intl.DateTimeFormat("id-ID", {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone: "Asia/Jakarta",
   }).format(new Date(value));
-}
-
-function connectionLabel(state: string): string {
-  const labels: Record<string, string> = {
-    connected: "Terhubung",
-    connecting: "Menghubungkan",
-    qr_ready: "Menunggu pemindaian QR",
-    transient_error: "Mencoba menyambung ulang",
-    logged_out: "Keluar",
-    auth_error: "Session bermasalah",
-    stopping: "Menghentikan layanan",
-    disconnected: "Terputus",
-  };
-  return labels[state] ?? "Tidak diketahui";
-}
-
-function ingestStatusLabel(status: "accepted" | "duplicate" | "ignored" | "none"): string {
-  const labels = {
-    accepted: "Diterima",
-    duplicate: "Duplikat diabaikan",
-    ignored: "Diabaikan sesuai kebijakan",
-    none: "Belum ada",
-  } as const;
-  return labels[status];
-}
-
-function ConversationPanel({ conversation }: { conversation: ConversationDetailDto | null }) {
-  if (!conversation) {
-    return (
-      <section className="inbox-detail inbox-empty" aria-label="Detail percakapan">
-        <div>
-          <p className="eyebrow">Receive-only</p>
-          <h2>Pilih percakapan</h2>
-          <p>Pesan masuk akan terlihat di sini. Pengiriman balasan belum tersedia.</p>
-        </div>
-      </section>
-    );
-  }
-
-  return (
-    <section className="inbox-detail" aria-label={`Percakapan dengan ${conversation.contactName}`}>
-      <header className="conversation-heading">
-        <div>
-          <p className="eyebrow">Percakapan langsung</p>
-          <h2>{conversation.contactName}</h2>
-          {conversation.phoneMasked ? <p>{conversation.phoneMasked}</p> : null}
-        </div>
-        <span className="inbox-status">{conversation.status}</span>
-      </header>
-      <div className="message-timeline">
-        {[...conversation.messages].reverse().map((message) => (
-          <article className="message-bubble" key={message.id}>
-            <p className="message-kind">
-              {message.messageType === "image"
-                ? "Gambar"
-                : message.messageType === "document"
-                  ? "Dokumen"
-                  : "Pesan teks"}
-            </p>
-            {message.text ? <p>{message.text}</p> : null}
-            {message.media ? (
-              <dl className="media-metadata">
-                <div>
-                  <dt>Tipe</dt>
-                  <dd>{message.media.mimeType}</dd>
-                </div>
-                {message.media.fileName ? (
-                  <div>
-                    <dt>Nama file</dt>
-                    <dd>{message.media.fileName}</dd>
-                  </div>
-                ) : null}
-                <div>
-                  <dt>Proses</dt>
-                  <dd>Metadata saja</dd>
-                </div>
-              </dl>
-            ) : null}
-            <time dateTime={message.providerTimestamp}>
-              {formatTime(message.providerTimestamp)}
-            </time>
-          </article>
-        ))}
-      </div>
-      {conversation.nextCursor ? (
-        <Link
-          className="text-link inbox-pagination"
-          href={`/dashboard/inbox?conversation=${conversation.id}&messageCursor=${encodeURIComponent(conversation.nextCursor)}`}
-        >
-          Muat pesan lebih lama
-        </Link>
-      ) : null}
-      <p className="receive-only-note">Mode receive-only aktif. Tidak ada kontrol kirim pesan.</p>
-    </section>
-  );
 }
 
 export default async function InboxPage({
@@ -132,147 +49,126 @@ export default async function InboxPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const session = await requireSession("/dashboard/inbox");
-  const rawSearch = await searchParams;
-  const parsedSearch = searchSchema.safeParse({
-    conversation: typeof rawSearch.conversation === "string" ? rawSearch.conversation : undefined,
-    cursor: typeof rawSearch.cursor === "string" ? rawSearch.cursor : undefined,
-    messageCursor:
-      typeof rawSearch.messageCursor === "string" ? rawSearch.messageCursor : undefined,
+  const raw = await searchParams;
+  const parsed = searchSchema.safeParse({
+    conversation: typeof raw.conversation === "string" ? raw.conversation : undefined,
+    cursor: typeof raw.cursor === "string" ? raw.cursor : undefined,
+    messageCursor: typeof raw.messageCursor === "string" ? raw.messageCursor : undefined,
+    q: typeof raw.q === "string" ? raw.q : "",
+    filter: typeof raw.filter === "string" ? raw.filter : "all",
   });
-  const query = parsedSearch.success ? parsedSearch.data : {};
+  const query = parsed.success ? parsed.data : searchSchema.parse({});
   const repository = new DrizzleInboxRepository();
   const workspace = { workspaceId: session.workspaceId };
 
   try {
-    const [list, detail, gatewayStatus, diagnostics] = await Promise.all([
+    const [list, detail, diagnostics, gatewayStatus] = await Promise.all([
       repository.listConversations(workspace, { cursor: query.cursor }),
       query.conversation
         ? repository.getConversation(workspace, query.conversation, {
             cursor: query.messageCursor,
           })
         : Promise.resolve(null),
-      getWhatsAppRouteDependencies()
-        .gateway.getStatus()
-        .catch(() => null),
       session.role === "owner" ? repository.getDiagnostics(workspace) : Promise.resolve(null),
+      getDashboardWhatsAppStatus(),
     ]);
     await repository.recordInboxViewed(workspace, session.userId);
 
-    return (
-      <main className="dashboard-shell inbox-shell">
-        <header className="inbox-page-header">
-          <div>
-            <Link className="text-link back-link" href="/dashboard">
-              ← Kembali ke dashboard
-            </Link>
-            <p className="eyebrow">Inbox WhatsApp</p>
-            <h1>Pesan masuk</h1>
-            <p className="lead">Pantau chat pribadi tanpa mengirim balasan dari sistem.</p>
-          </div>
-          <div className="gateway-summary">
-            <span
-              className={`connection-indicator connection-${gatewayStatus?.connection.state}`}
-            />
-            <div>
-              <small>Status koneksi</small>
-              <strong>{connectionLabel(gatewayStatus?.connection.state ?? "unknown")}</strong>
-            </div>
-          </div>
-        </header>
+    const now = new Date();
+    const conversations = list.conversations.map((conversation) =>
+      createConversationView(conversation, now),
+    );
+    const visibleConversations = filterConversationViews(conversations, query.q, query.filter);
+    const detailView = detail ? createConversationDetailView(detail) : null;
+    const selectedSummary = conversations.find((item) => item.id === detailView?.id) ?? null;
+    const whatsapp = createWhatsAppViewModel(gatewayStatus, session.role);
 
-        {session.role === "owner" && diagnostics ? (
-          <section className="inbox-diagnostics" aria-label="Diagnostik ingestion WhatsApp">
+    return (
+      <div className="page-stack inbox-page-stack">
+        <PageHeader
+          title="Inbox"
+          description="Baca percakapan WhatsApp masuk dengan aman dalam mode receive-only."
+          meta={
+            <StatusBadge tone={whatsapp.connectionState === "connected" ? "success" : "neutral"}>
+              {whatsapp.connectionLabel}
+            </StatusBadge>
+          }
+        />
+
+        {diagnostics ? (
+          <section className="inbox-health-strip" aria-label="Status ingestion inbox">
             <div>
-              <small>Status akun</small>
-              <strong>
-                {gatewayStatus?.binding.state === "bound" ? "Terikat" : "Belum terikat"}
-              </strong>
+              <span>Status ikatan</span>
+              <strong>{whatsapp.bindingLabel}</strong>
             </div>
             <div>
-              <small>Total percakapan</small>
+              <span>Total percakapan</span>
               <strong>{diagnostics.totalConversations}</strong>
             </div>
             <div>
-              <small>Event terakhir diterima</small>
+              <span>Event terakhir</span>
               <strong>
-                {diagnostics.lastReceivedAt ? formatTime(diagnostics.lastReceivedAt) : "Belum ada"}
+                {diagnostics.lastReceivedAt
+                  ? formatDateTime(diagnostics.lastReceivedAt)
+                  : "Belum ada"}
               </strong>
             </div>
             <div>
-              <small>Status ingestion terakhir</small>
-              <strong>{ingestStatusLabel(diagnostics.lastIngestStatus)}</strong>
+              <span>Ingestion</span>
+              <strong>
+                {diagnostics.lastIngestStatus === "accepted"
+                  ? "Diterima"
+                  : diagnostics.lastIngestStatus === "duplicate"
+                    ? "Duplikat diabaikan"
+                    : diagnostics.lastIngestStatus === "ignored"
+                      ? "Diabaikan"
+                      : "Belum ada"}
+              </strong>
             </div>
-            <Link
-              className="text-link inbox-refresh"
-              href={
-                query.conversation
-                  ? `/dashboard/inbox?conversation=${query.conversation}`
-                  : "/dashboard/inbox"
-              }
-            >
-              Muat ulang
-            </Link>
           </section>
         ) : null}
 
-        <div className="inbox-layout">
-          <aside className="conversation-list" aria-label="Daftar percakapan">
-            <div className="conversation-list-heading">
-              <h2>Percakapan</h2>
-              <span>{list.conversations.length}</span>
-            </div>
-            {list.conversations.length === 0 ? (
-              <div className="conversation-empty">
-                <h3>Belum ada pesan</h3>
-                <p>Chat pribadi pertama akan muncul setelah diterima gateway.</p>
-              </div>
-            ) : (
-              <nav>
-                {list.conversations.map((conversation) => (
-                  <Link
-                    className={`conversation-item ${query.conversation === conversation.id ? "conversation-item-active" : ""}`}
-                    href={`/dashboard/inbox?conversation=${conversation.id}`}
-                    key={conversation.id}
-                  >
-                    <span className="conversation-avatar" aria-hidden="true">
-                      {conversation.contactName.slice(0, 1).toUpperCase()}
-                    </span>
-                    <span className="conversation-copy">
-                      <strong>{conversation.contactName}</strong>
-                      <small>{conversation.lastMessagePreview}</small>
-                    </span>
-                    <time dateTime={conversation.lastMessageAt}>
-                      {formatTime(conversation.lastMessageAt)}
-                    </time>
-                  </Link>
-                ))}
-              </nav>
-            )}
-            {list.nextCursor ? (
-              <Link
-                className="text-link inbox-pagination"
-                href={`/dashboard/inbox?cursor=${encodeURIComponent(list.nextCursor)}`}
-              >
-                Percakapan berikutnya
-              </Link>
-            ) : null}
-          </aside>
-          <ConversationPanel conversation={detail} />
+        <div
+          className={`inbox-workspace${detailView ? " inbox-workspace-selected" : ""}`}
+          data-testid="inbox-workspace"
+        >
+          <ConversationList
+            conversations={visibleConversations}
+            nextCursor={list.nextCursor ?? null}
+            query={query.q}
+            selectedId={query.conversation}
+          />
+          {detailView ? (
+            <>
+              <MessageTimeline
+                conversation={detailView}
+                historyMode={Boolean(query.messageCursor)}
+              />
+              <ContactPanel conversation={detailView} summary={selectedSummary} />
+            </>
+          ) : (
+            <section className="inbox-selection-empty" aria-label="Detail percakapan">
+              <EmptyState
+                title="Pilih percakapan"
+                description="Pilih salah satu percakapan untuk membaca pesan dan melihat detail kontak."
+              />
+            </section>
+          )}
         </div>
-      </main>
+      </div>
     );
   } catch {
     return (
-      <main className="dashboard-shell inbox-shell">
-        <Link className="text-link back-link" href="/dashboard">
-          ← Kembali ke dashboard
-        </Link>
-        <section className="inbox-error" role="alert">
-          <p className="eyebrow">Inbox tidak tersedia</p>
-          <h1>Pesan belum dapat dimuat</h1>
-          <p>Coba muat ulang halaman. Koneksi WhatsApp tidak akan mengirim balasan otomatis.</p>
-        </section>
-      </main>
+      <div className="page-stack">
+        <PageHeader
+          title="Inbox"
+          description="Baca percakapan WhatsApp masuk dalam mode receive-only."
+        />
+        <ErrorState
+          description="Pesan belum dapat dimuat. Tidak ada balasan otomatis yang dikirim."
+          retryHref="/dashboard/inbox"
+        />
+      </div>
     );
   }
 }

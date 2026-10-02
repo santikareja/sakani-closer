@@ -9,11 +9,12 @@ describe("protected owner inbox page", () => {
     expect(page).toContain('export const dynamic = "force-dynamic"');
     expect(page).toContain('requireSession("/dashboard/inbox")');
     expect(page).toContain('session.role === "owner"');
-    expect(page).toContain("Status akun");
+    expect(page).toContain("Status ikatan");
     expect(page).toContain("Total percakapan");
-    expect(page).toContain("Event terakhir diterima");
-    expect(page).toContain("Status ingestion terakhir");
-    expect(page).toContain("Muat ulang");
+    expect(page).toContain("Event terakhir");
+    expect(page).toContain("Ingestion");
+    expect(page).toContain("MessageTimeline");
+    expect(page).toContain("ContactPanel");
     expect(page).not.toContain("INTERNAL_SERVICE_TOKEN");
     expect(page).not.toContain("remoteJid");
     expect(page).not.toContain("authState");

@@ -1,4 +1,6 @@
 .next
+.agents
+.kilo
 coverage
 dist
 node_modules
