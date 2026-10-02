@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "whatsapp-baileys": {
+      "source": "shura1981/custom_baieys",
+      "sourceType": "github",
+      "skillPath": ".github/skills/whatsapp-baileys/SKILL.md",
+      "computedHash": "2b6e89bf0cfbb8099df812429c7a4d05fa4d237ecfbd436846551017255bf56b"
+    }
+  }
+}

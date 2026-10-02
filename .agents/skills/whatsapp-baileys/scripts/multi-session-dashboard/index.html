@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Multi-Sesión - Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🤖 WhatsApp Multi-Sesión</h1>
+            <p>Panel de control para gestionar múltiples líneas de WhatsApp</p>
+        </header>
+
+        <div class="grid">
+            <!-- Panel de Crear Sesión -->
+            <div class="card">
+                <h2>➕ Crear Sesión</h2>
+                <div class="form-group">
+                    <input type="text" id="sessionId" placeholder="Nombre de la sesión (ej: ventas)">
+                    <button onclick="createSession()">Crear</button>
+                </div>
+                <div id="qr-container" class="qr-container" style="display: none;">
+                    <h3>📱 Escanea el QR</h3>
+                    <div id="qrCanvas"></div>
+                    <p class="qr-text"></p>
+                </div>
+            </div>
+
+            <!-- Lista de Sesiones -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>📋 Sesiones Activas</h2>
+                    <button class="btn-refresh" onclick="loadSessions()">🔄</button>
+                </div>
+                <div id="sessions-list" class="sessions-list">
+                    <p class="loading">Cargando sesiones...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Panel de Enviar Mensaje -->
+        <div class="card full-width">
+            <h2>📤 Enviar Mensaje</h2>
+            <div class="form-group">
+                <select id="sendSession">
+                    <option value="">Selecciona una sesión</option>
+                </select>
+                <input type="text" id="phoneNumber" placeholder="Número (ej: 5214451234567)">
+                <input type="text" id="messageText" placeholder="Mensaje">
+                <button onclick="sendMessage()">Enviar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="qrcode.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
